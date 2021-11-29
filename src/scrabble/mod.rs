@@ -68,11 +68,7 @@ impl Game {
     }
 
     pub fn is_over(&self) -> bool {
-        if let State::Over = self.state {
-            true
-        } else {
-            false
-        }
+        matches!(self.state, State::Over)
     }
 
     fn init_scores(&mut self) -> Result<(), Error> {
@@ -123,7 +119,8 @@ impl Game {
             State::Over => return Err(Error::GameOver),
             _ => (),
         }
-        // FIXME: make this an atomic operation? Need something like immutable
+        // FIXME: make this an atomic operation? Need something like immutable data;
+        // the validation should otherwise check everything
         self.validate_turn(&turn)?;
         self.score_turn(&turn)?;
         self.spend_tiles(&turn)?;
@@ -137,7 +134,33 @@ impl Game {
     fn check_game_over(&mut self) -> Result<(), Error> {
         if self.bag.0.is_empty() && self.racks.iter().any(|r| r.is_empty()) {
             self.state = State::Over;
+
+            for (index, rack) in self.racks.iter().enumerate() {
+                let remaining = rack.iter().fold(0, |sum, tile| sum + score_tile(tile));
+                if remaining > 0 {
+                    self.scores[index].push(TurnScore {
+                        scores: vec![("(remaining tiles)".to_string(), -remaining)],
+                    })
+                }
+            }
         }
+
+        // FIXME: check consecutive passes
+
+        Ok(())
+    }
+
+    pub fn swap(&mut self, turn: Turn) -> Result<(), Error> {
+        todo!()
+    }
+
+    pub fn pass(&mut self) -> Result<(), Error> {
+        if self.bag.0.len() > 6 {
+            return Err(Error::CannotPass);
+        }
+
+        // fixme
+        todo!();
 
         Ok(())
     }
@@ -153,7 +176,11 @@ impl Game {
     }
 
     fn score_turn(&mut self, turn: &Turn) -> Result<(), Error> {
-        let score = self.board.score_turn(turn)?;
+        let overlay = Overlay {
+            board: &self.board,
+            turn,
+        };
+        let score = overlay.score()?;
         self.scores[self.player_index].push(score);
 
         Ok(())
@@ -178,9 +205,12 @@ impl Game {
             // FIXME: handle blanks
             let index = rack
                 .iter()
-                .position(|rack_tile| rack_tile == tile)
+                .position(|rack_tile| match tile {
+                    Tile::Char(..) => tile == rack_tile,
+                    Tile::Blank(Some(char)) => matches!(rack_tile, Tile::Blank(None)),
+                    Tile::Blank(None) => false,
+                })
                 .ok_or_else(|| Error::NoTileToSpend(*tile))?;
-
             rack.remove(index);
         }
         Ok(rack)
@@ -311,6 +341,8 @@ pub enum Error {
     TurnNotLinear,
     NotStarted,
     GameOver,
+    BlankTileInTurn,
+    CannotPass,
 }
 
 impl Board {
@@ -367,55 +399,15 @@ impl Board {
 
     // FIXME: check dictionary and return Result instead
     fn new_words(&self, turn: &Turn) -> Vec<Word> {
-        let original: Vec<Word> = self.words().collect();
         let overlay = Overlay { board: self, turn };
-        let horizontal = Words::horizontal(&overlay);
-        let vertical = Words::vertical(&overlay);
-        let mut overlay_words: Vec<Word> = horizontal.chain(vertical).collect();
-
-        for word in original {
-            overlay_words.retain(|w| *w != word);
-        }
-
-        overlay_words
-    }
-
-    fn score_turn(&self, turn: &Turn) -> Result<TurnScore, Error> {
-        let mut scores = vec![];
-        for word in self.new_words(turn) {
-            scores.push((String::from(&word), self.score_word(&word)))
-        }
-
-        Ok(TurnScore { scores })
-    }
-
-    fn score_word(&self, word: &Word) -> usize {
-        let word_bonus = self.word_bonus(&word.indexes);
-
-        let mut score = 0;
-
-        for (char, index) in word.char_indicies() {
-            score += self.score_char(char, index);
-        }
-
-        score * word_bonus
+        overlay.new_words()
     }
 
     fn get_square(&self, index: &usize) -> Option<&Square> {
         self.0.get(*index)
     }
 
-    // FIXME: blank gets 0
-    fn score_char(&self, char: char, index: &usize) -> usize {
-        let letter_bonus = match self.get_square(index) {
-            Some(Square::LetterBonus(multiplier)) => *multiplier,
-            _ => 1,
-        };
-
-        score_char(&char) * letter_bonus
-    }
-
-    fn word_bonus(&self, indexes: &[usize]) -> usize {
+    fn word_bonus(&self, indexes: &[usize]) -> isize {
         let mut bonus = 1;
         for index in indexes {
             if let Some(Square::WordBonus(multiplier)) = self.get_square(index) {
@@ -430,7 +422,7 @@ impl Board {
         // FIXME: ensure turn is valid, get scores
         for (index, tile) in &turn.tiles {
             let entry = &mut self.0[*index];
-            let mut new_value = Square::Tile(tile.clone());
+            let mut new_value = Square::Tile(*tile);
             std::mem::swap(entry, &mut new_value);
         }
 
@@ -448,6 +440,15 @@ impl Board {
 
         result
     }
+
+    fn get_tile(&self, index: &usize) -> Option<&Tile> {
+        match self.0.get(*index).expect("index out of bounds") {
+            Square::Blank => None,
+            Square::Tile(tile) => Some(tile),
+            Square::LetterBonus(_) => None,
+            Square::WordBonus(_) => None,
+        }
+    }
 }
 
 fn format_square(square: &Square) -> String {
@@ -463,7 +464,14 @@ fn format_square(square: &Square) -> String {
     }
 }
 
-fn score_char(char: &char) -> usize {
+fn score_tile(tile: &Tile) -> isize {
+    match tile {
+        Tile::Char(c) => score_char(c),
+        Tile::Blank(_) => 0,
+    }
+}
+
+fn score_char(char: &char) -> isize {
     match char {
         'A' => 1,
         'B' => 3,
@@ -495,13 +503,74 @@ fn score_char(char: &char) -> usize {
     }
 }
 
-trait GetChar {
+pub trait GetChar {
     fn get_char(&self, index: usize) -> Option<char>;
 }
 
 struct Overlay<'a> {
     board: &'a Board,
     turn: &'a Turn,
+}
+
+impl Overlay<'_> {
+    fn new_words(&self) -> Vec<Word> {
+        let original: Vec<Word> = self.board.words().collect();
+        let horizontal = Words::horizontal(self);
+        let vertical = Words::vertical(self);
+        let mut overlay_words: Vec<Word> = horizontal.chain(vertical).collect();
+
+        for word in original {
+            overlay_words.retain(|w| *w != word);
+        }
+
+        overlay_words
+    }
+
+    // FIXME: blank gets 0
+    fn score_tile(&self, tile: &Tile, index: &usize) -> isize {
+        score_tile(tile) * self.letter_bonus(index)
+    }
+
+    fn get_tile(&self, index: &usize) -> Option<&Tile> {
+        self.turn
+            .get_tile(index)
+            .or_else(|| self.board.get_tile(index))
+    }
+
+    fn score_word(&self, word: &Word) -> isize {
+        let word_bonus = self.word_bonus(&word.indexes);
+
+        let mut score = 0;
+
+        for index in &word.indexes {
+            let tile = self
+                .get_tile(index)
+                .expect("tile unexpectedly missing from word");
+            score += self.score_tile(tile, index);
+        }
+
+        score * word_bonus
+    }
+
+    fn word_bonus(&self, indexes: &[usize]) -> isize {
+        self.board.word_bonus(indexes)
+    }
+
+    fn letter_bonus(&self, index: &usize) -> isize {
+        match self.board.get_square(index) {
+            Some(Square::LetterBonus(multiplier)) => *multiplier,
+            _ => 1,
+        }
+    }
+
+    pub fn score(&self) -> Result<TurnScore, Error> {
+        let mut scores = vec![];
+        for word in self.new_words() {
+            scores.push((String::from(&word), self.score_word(&word)))
+        }
+
+        Ok(TurnScore { scores })
+    }
 }
 
 impl GetChar for Board {
@@ -671,7 +740,7 @@ pub struct Turn {
 
 #[derive(Deserialize, Serialize, Debug, Eq, PartialEq)]
 pub struct TurnScore {
-    scores: Vec<(String, usize)>,
+    scores: Vec<(String, isize)>,
 }
 
 impl Turn {
@@ -688,9 +757,7 @@ impl Turn {
 
     fn validate_unique_indexes(&self) -> Result<(), Error> {
         // all indexes should be unique
-        if self.indexes().collect::<Vec<_>>().len()
-            == self.indexes().collect::<HashSet<&usize>>().len()
-        {
+        if self.indexes().count() == self.indexes().collect::<HashSet<&usize>>().len() {
             Ok(())
         } else {
             Err(Error::TurnIndexesNotUnique)
@@ -716,6 +783,14 @@ impl Turn {
             Err(Error::TurnNotLinear)
         }
     }
+
+    fn get_tile(&self, index: &usize) -> Option<&Tile> {
+        self.tiles
+            .iter()
+            .filter(|(i, _)| i == index)
+            .map(|(_, tile)| tile)
+            .next()
+    }
 }
 
 // 0  1  2
@@ -731,8 +806,8 @@ impl Turn {
 enum Square {
     Blank,
     Tile(Tile),
-    LetterBonus(usize),
-    WordBonus(usize),
+    LetterBonus(isize),
+    WordBonus(isize),
 }
 
 impl Square {
@@ -740,11 +815,11 @@ impl Square {
         Square::Blank
     }
 
-    fn word_bonus(multiplier: usize) -> Self {
+    fn word_bonus(multiplier: isize) -> Self {
         Square::WordBonus(multiplier)
     }
 
-    fn letter_bonus(multiplier: usize) -> Self {
+    fn letter_bonus(multiplier: isize) -> Self {
         Square::LetterBonus(multiplier)
     }
 
@@ -822,18 +897,19 @@ mod test {
     }
 
     #[test]
-    fn test_board_score_turn() {
+    fn test_overlay_score_turn() {
         let board = Board::parse(test_board_a()).unwrap();
         let turn = Turn {
             tiles: vec![(111, l!('S')), (126, l!('L')), (156, l!('T'))],
         };
 
-        let scores: HashSet<(String, usize)> = board
-            .score_turn(&turn)
-            .unwrap()
-            .scores
-            .into_iter()
-            .collect();
+        let overlay = Overlay {
+            board: &board,
+            turn: &turn,
+        };
+
+        let scores: HashSet<(String, isize)> =
+            overlay.score().unwrap().scores.into_iter().collect();
 
         assert_eq!(
             scores,
@@ -1004,5 +1080,92 @@ mod test {
         println!("{:#?}", game);
 
         assert!(game.is_over());
+
+        assert_eq!(
+            game.scores[0],
+            vec![
+                TurnScore {
+                    scores: vec![("MAR".to_owned(), 10)]
+                },
+                TurnScore {
+                    scores: vec![("TIL".to_owned(), 3)]
+                },
+                TurnScore {
+                    scores: vec![("(remaining tiles)".to_string(), -12)]
+                }
+            ]
+        )
+    }
+
+    #[test]
+    fn test_game_play_with_blanks() {
+        let mut game = Game::default();
+        let bag = Bag(vec![
+            l!('Q'),
+            l!('A'),
+            l!('P'),
+            l!('S'),
+            l!('T'),
+            l!('I'),
+            l!('E'),
+            l!('X'),
+            l!('L'),
+            l!('I'),
+            l!('T'),
+            l!('R'),
+            l!('A'),
+            l!(),
+            l!('S'),
+        ]);
+
+        game.bag = bag;
+        game.add_player(Player::from("Frankie")).unwrap();
+        game.add_player(Player::from("Ada")).unwrap();
+
+        game.start().unwrap();
+        game.player_index = 0;
+
+        assert_eq!(game.racks.len(), 2);
+        assert_eq!(game.racks[0].len(), 7);
+        assert_eq!(game.racks[1].len(), 7);
+
+        let turn_a = Turn {
+            tiles: vec![
+                (111, l!('S')),
+                (112, Tile::Blank(Some('M'))),
+                (113, l!('A')),
+                (114, l!('R')),
+                (115, l!('T')),
+            ],
+        };
+
+        game.play(turn_a).unwrap();
+        println!("{:#?}", game);
+
+        assert_eq!(
+            game.scores[0],
+            vec![TurnScore {
+                scores: vec![("SMART".to_string(), 8)]
+            }]
+        );
+
+        let words: Vec<String> = game.board.words().map(Into::into).collect();
+        assert_eq!(words, vec!["SMART".to_string()]);
+
+        let turn_b = Turn {
+            tiles: vec![(127, l!('A')), (128, l!('X'))],
+        };
+
+        game.play(turn_b).unwrap();
+        assert_eq!(
+            game.scores[1],
+            vec![TurnScore {
+                scores: vec![
+                    ("AX".to_string(), 17),
+                    ("MA".to_string(), 1), // blank M doesn't count
+                    ("AX".to_string(), 17)
+                ]
+            }],
+        );
     }
 }
