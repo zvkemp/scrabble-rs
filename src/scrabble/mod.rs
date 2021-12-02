@@ -50,7 +50,7 @@ impl std::fmt::Debug for Game {
 
 // FIXME: this should also have a uuid
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
-pub struct Player(String);
+pub struct Player(pub(crate) String);
 
 pub type Rack = Vec<Tile>;
 
