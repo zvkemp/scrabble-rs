@@ -13,3 +13,4 @@ axum = "*"
 tokio = { version = "*", features = ["full"] }
 # axum-channels = { git = "https://www.github.com/zvkemp/axum-channels" }
 axum-channels = { path = "../axum-channels" }
+askama = "0.10"

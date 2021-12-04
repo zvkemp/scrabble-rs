@@ -1,6 +1,7 @@
+use askama::Template;
 use axum::{
     extract::{Extension, WebSocketUpgrade},
-    response::IntoResponse,
+    response::{Html, IntoResponse},
     routing::get,
     AddExtensionLayer, Router,
 };
@@ -12,7 +13,10 @@ use axum_channels::{
     ConnFormat,
 };
 use scrabble::{Game, Player};
-use std::sync::{Arc, Mutex};
+use std::{
+    fmt::Display,
+    sync::{Arc, Mutex},
+};
 use tokio::sync::mpsc::UnboundedSender;
 
 mod scrabble;
@@ -31,12 +35,30 @@ async fn main() {
     let app = Router::new()
         .route("/ws", get(json_handler))
         .route("/simple", get(simple_handler))
+        .route("/", get(index))
+        .route("/js/index.js", get(index_js))
+        .route("/js/index.js.map", get(index_js_map))
         .layer(AddExtensionLayer::new(registry));
 
     axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
         .serve(app.into_make_service())
         .await
         .unwrap();
+}
+
+async fn index() -> Html<String> {
+    let template = Layout {
+        inner: Box::new(IndexTemplate { name: "world" }),
+    };
+    Html(template.render().unwrap())
+}
+
+async fn index_js() -> &'static str {
+    include_str!("../assets/index.js")
+}
+
+async fn index_js_map() -> &'static str {
+    include_str!("../assets/index.js.map")
 }
 
 async fn json_handler(
@@ -146,4 +168,29 @@ impl ChannelBehavior for GameChannel {
 
         Ok(())
     }
+}
+
+#[derive(Template)]
+#[template(path = "game.html")]
+struct GameTemplate<'a> {
+    game_id: &'a str,
+    player: &'a str,
+    token: &'a str,
+}
+
+#[derive(Template)]
+#[template(path = "index.html")]
+struct IndexTemplate<'a> {
+    name: &'a str,
+}
+
+trait Partial: Template + Display {}
+
+impl Partial for GameTemplate<'_> {}
+impl Partial for IndexTemplate<'_> {}
+
+#[derive(Template)]
+#[template(path = "layout.html")]
+struct Layout {
+    inner: Box<dyn Partial>,
 }

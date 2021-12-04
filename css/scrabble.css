@@ -1,0 +1,328 @@
+#board-header input {
+  width: 400px;
+}
+
+#game-container {
+  display: flex;
+  flex-direction: row;
+  width: fit-content;
+}
+
+#board-main {
+}
+
+#board-footer {
+  display: flex;
+  flex-direction: row;
+  width: fit-content;
+}
+
+#board-container {
+  display: grid;
+  width: fit-content;
+  grid-template-columns: repeat(15, 30px); 
+  grid-template-rows: repeat(15, 30px);
+  grid-gap: 1px;
+  /* max-width: 600px; */
+  border: 9px solid MistyRose;
+  padding: 4px;
+  flex: 1;
+}
+
+#remaining-letters {
+  font-size: 8pt;
+  font-weight: bold;
+  line-height: 12pt;
+  padding: 10px;
+  flex: 1;
+  text-align: center;
+}
+
+.flash-container .alert {
+  font-size: 9pt;
+  /* display: inline-block; */
+  margin-left: 10pt;
+  padding: 7pt;
+}
+
+
+/* .flash-container .alert:empty { */
+/*   display: block; */
+/* } */
+
+#board-container, #rack-container {
+  -webkit-touch-callout: none; 
+  -webkit-user-select: none; 
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+#board-container.super {
+  grid-template-columns: repeat(21, 30px); 
+  grid-template-rows: repeat(21, 30px);
+}
+
+#board-container.mini {
+  grid-template-columns: repeat(11, 30px); 
+  grid-template-rows: repeat(11, 30px);
+}
+
+#board-container.current {
+  border-color: green;
+}
+
+#rack-container {
+  display: grid;
+  grid-template-columns: repeat(14, 40px);
+  grid-template-rows: repeat(1, 40px);
+  grid-gap: 2px;
+  max-width: 600px;
+  padding: 10px;
+}
+
+.rack-square, .board-square {
+  border: 1px solid beige;
+  border-radius: 2px;
+  justify-content: center;
+  align-items: center;
+  display: flex;
+  font-family: Helvetica;
+  font-weight: light;
+}
+
+.board-square {
+  background-color: floralwhite;
+}
+
+.board-square.bonus {
+  font-size: 7pt;
+  font-weight: bold;
+  padding: 2pt;
+  text-align: center;
+  line-height: 6pt;
+  color: white;
+}
+
+.board-square.quad_word {
+  background-color: Darkorange;
+  /* color: IndianRed; */
+}
+.board-square.triple_word {
+  background-color: IndianRed;
+}
+.board-square.double_word {
+  background-color: LightPink;
+  color: IndianRed;
+}
+.board-square.quad_letter {
+  color: lightcyan;
+  background-color: darkcyan;
+}
+.board-square.triple_letter {
+  background-color: skyblue;
+}
+.board-square.double_letter {
+  background-color: lightcyan;
+  color: skyblue;
+}
+
+.board-square.tile, .rack-square.tile {
+  background-color: tan;
+  border: none;
+  border-radius: 4px;
+  font-size: 16px;
+  font-weight: normal;
+  color: black;
+}
+
+.rack-square.tile {
+  font-size: 20px;
+}
+
+.rack-square.tile.empty {
+  border: 1px dotted gray;
+  background-color: white;
+}
+
+.board-square.tile-proposed {
+  background-color: green;
+  color: white;
+  border: none;
+  font-size: 16px;
+  font-weight: normal;
+}
+
+.board-square.tile-blank {
+  color: indianred;
+}
+
+.board-square.last-turn {
+  background-color: #F5B041;
+}
+
+.board-square.cursor {
+  border: 2px solid red;
+  border-bottom: 3px solid green;
+}
+
+.rack-square.tile.cursor {
+  border: 2px solid red;
+}
+
+.rack-square.tile.used {
+  background-color: white;
+  border: 1px dotted black;
+}
+
+.board-square.cursor.cursor-h {
+  border: 2px solid red;
+  border-right: 3px solid green;
+}
+
+#score-container table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+th.current-player {
+  color: green;
+}
+
+th.is-player {
+  text-decoration: underline dotted;
+}
+
+th.offline {
+  color: gray;
+  font-style: italic;
+  font-weight: normal;
+}
+
+th.offline::after {
+  font-size: 7pt;
+  color: white;
+  background-color: lightgray;
+  border-radius: 4px;
+  content: "OFFLINE";
+  padding: 4px;
+  margin-left: 4px;
+  font-style: normal;
+  font-weight: bold;
+}
+
+#swap-button, #pass-button, .submit-button {
+  margin-left: 10px;
+}
+
+#swap-button, #pass-button {
+  background-color: indianred;
+}
+
+tr.game-row td {
+  padding: 1em;
+}
+
+tr.game-over {
+  background-color: lightgray;
+}
+
+tr.your-turn {
+  background-color: #E9F7EF;
+}
+
+span.your-turn {
+  background-color: green;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 9pt;
+  color: white;
+  padding: 4px;
+}
+
+.board-square::after {
+  color: rgba(0, 0, 0, 0.4);
+  font-size: 7pt;
+  font-weight: bold;
+  transform: translate(50%, 50%);
+  position: absolute;
+  text-align: right;
+  transform: translate(7pt, 7pt);
+}
+
+.rack-square::after {
+  position: absolute;
+  color: rgba(0, 0, 0, 0.8);
+  font-size: 7pt;
+  font-weight: bold;
+  text-align: right;
+  transform: translate(8pt, 8pt);
+}
+
+.letter-A::after,
+.letter-E::after,
+.letter-I::after,
+.letter-L::after,
+.letter-N::after,
+.letter-O::after,
+.letter-R::after,
+.letter-S::after,
+.letter-T::after,
+.letter-U::after {
+  content: "1";
+}
+
+.letter-D::after,
+.letter-G::after {
+  content: "2";
+}
+
+.letter-B::after,
+.letter-C::after,
+.letter-M::after,
+.letter-P::after {
+  content: "3";
+}
+
+.letter-F::after,
+.letter-H::after,
+.letter-V::after,
+.letter-W::after,
+.letter-Y::after {
+  content: "4";
+}
+
+.letter-K::after {
+  content: "5";
+}
+
+.letter-J::after,
+.letter-X::after {
+  content: "8";
+}
+
+.letter-Q::after,
+.letter-Z::after {
+  content: "10"
+}
+
+.score-word {
+  font-size: 10pt;
+  margin-left: 8pt;
+}
+
+.score-bingo {
+  border: 1px solid gray;
+  border-radius: 4px;
+  background-color: DarkCyan;
+  color: white;
+  font-weight: bold;
+  font-size: 9pt;
+  padding: 2px;
+  margin-left: 8pt;
+}
+
+.broadcast-button {
+  background-color: green;
+}

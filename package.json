@@ -1,0 +1,19 @@
+{
+  "name": "scrabble",
+  "version": "0.0.1",
+  "main": "index.js",
+  "repository": "https://github.com/zvkemp/scrabble-rs.git",
+  "author": "zvkemp <zvkemp@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "d3-selection": "^3.0.0",
+    "esbuild": "^0.14.1",
+    "phoenix": "^1.6.2"
+  },
+  "devDependencies": {
+    "typescript": "^4.5.2"
+  },
+  "scripts": {
+    "build": "esbuild js/app.js --bundle --sourcemap --outfile=assets/index.js"
+  }
+}
