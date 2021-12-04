@@ -60,11 +60,12 @@ class Scrabble {
   joinGameAs(token, name) {
     this.channel = this.socket.channel(`game:${this.game_id}`, { token: token });
     window.channel = this.channel;
+    debugger;
     this.channel.join()
       .receive("ok", resp => { console.log(`joined game:${this.game_id}`, resp) })
       .receive("error", resp => { console.error("unable to join", resp) })
 
-    this.channel.on("player-state", ({game, rack, remaining}) => {
+    this.channel.on("player-state", ({ game, rack, remaining }) => {
       if (game) { this.handleGameState({ game }) }
       if (rack) { this.handleRack({ rack }) }
       if (remaining) { this.handleRemaining({ remaining }) }
@@ -324,7 +325,7 @@ class Scrabble {
 
       let component = this;
 
-      tile.html(function ({ bonus }) {
+      tile.html(function({ bonus }) {
         return boni[bonus];
       }).classed("tile-proposed", false)
         .classed("tile-blank", false);
@@ -530,11 +531,11 @@ class Scrabble {
     headerSelection = headerSelection.merge(headEnter);
     let thSelection = headerSelection.selectAll('th').data(players);
     thSelection = thSelection.merge(thSelection.enter().append('th'));
-    thSelection.html(function (player) {
+    thSelection.html(function(player) {
       return `${player} (${component.totalScore(player)})`
     }).classed('current-player', (d) => this.current_player == d)
-    .classed('is-player', (d) => this.player == d)
-    .classed('offline', (d) => this.playerIsOffline(d));
+      .classed('is-player', (d) => this.player == d)
+      .classed('offline', (d) => this.playerIsOffline(d));
 
     let rowSelection = table.select('tbody').selectAll('tr').data(data);
     let row_entry = rowSelection.enter().append('tr')
@@ -544,7 +545,7 @@ class Scrabble {
       let cell_entry = cells.enter().append('td');
       cells = cells.merge(cell_entry);
 
-      cells.html(function (p) {
+      cells.html(function(p) {
         let localScores = scores[p][d] || [];
 
         let total = localScores.reduce((acc, score) => {

@@ -1,7 +1,12 @@
-<meta name="id-token", content="{{ token }}>" />
-<meta name="player", content="{{ player }}>" />
-<meta name="game-id", content="{{ game_id }}>" />
+{% extends "layout.html" %}
 
+{% block head %}
+<meta name="id-token", content="{{ token }}" />
+<meta name="player", content="{{ player }}" />
+<meta name="game-id", content="{{ game_id }}" />
+{% endblock %}
+
+{% block content %}
 <section id="board-header">
 </section>
 <section id="game-container">
@@ -36,3 +41,4 @@
     </tbody>
   </table>
 </section>
+{% endblock %}

@@ -5,13 +5,14 @@
 
   <title>scrabble.rs</title>
 
-  <link rel="stylesheet" href="css/styles.css?v=1.0">
+  <link rel="stylesheet" href="/css/styles.css?v=1.0">
   <meta name="id-token", content="test-id-token" />
   <meta name="csrf-token", content="test-csrf-token" />
+  {% block head %}{% endblock %}
 </head>
 
 <body>
-  <script src="js/index.js"></script>
-  {{ inner }}
+  <script src="/js/index.js"></script>
+  {% block content %}{% endblock %}
 </body>
 </html>

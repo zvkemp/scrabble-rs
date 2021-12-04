@@ -1,6 +1,6 @@
 use askama::Template;
 use axum::{
-    extract::{Extension, WebSocketUpgrade},
+    extract::{Extension, Path, WebSocketUpgrade},
     response::{Html, IntoResponse},
     routing::get,
     AddExtensionLayer, Router,
@@ -18,11 +18,18 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tokio::sync::mpsc::UnboundedSender;
+use tracing_subscriber::EnvFilter;
 
 mod scrabble;
 
 #[tokio::main]
 async fn main() {
+    // tracing_subscriber::fmt()
+    //     .with_env_filter(EnvFilter::default())
+    //     .with_writer(std::io::stdout)
+    //     .initracing_subscriber::fmt::init();t();
+    tracing_subscriber::fmt::init();
+
     let registry = Arc::new(Mutex::new(Registry::default()));
     let lobby = Box::new(Lobby(registry.clone()));
 
@@ -33,11 +40,12 @@ async fn main() {
     drop(locked);
 
     let app = Router::new()
-        .route("/ws", get(json_handler))
-        .route("/simple", get(simple_handler))
+        .route("/simple/websocket", get(handler))
         .route("/", get(index))
+        .route("/play/:game_id", get(show_game))
         .route("/js/index.js", get(index_js))
         .route("/js/index.js.map", get(index_js_map))
+        .route("/css/styles.css", get(css))
         .layer(AddExtensionLayer::new(registry));
 
     axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
@@ -47,9 +55,7 @@ async fn main() {
 }
 
 async fn index() -> Html<String> {
-    let template = Layout {
-        inner: Box::new(IndexTemplate { name: "world" }),
-    };
+    let template = IndexTemplate { name: "world" };
     Html(template.render().unwrap())
 }
 
@@ -61,26 +67,37 @@ async fn index_js_map() -> &'static str {
     include_str!("../assets/index.js.map")
 }
 
-async fn json_handler(
+async fn css() -> &'static str {
+    include_str!("../assets/index.css")
+}
+
+async fn show_game(Path(game_id): Path<String>) -> Html<String> {
+    let template = GameTemplate {
+        game_id: game_id.as_str(),
+        player: "fixme",
+        token: "fixme",
+    };
+    Html(template.render().unwrap())
+}
+
+async fn handler(
     ws: WebSocketUpgrade,
     Extension(registry): Extension<Arc<Mutex<Registry>>>,
 ) -> impl IntoResponse {
-    println!("handler");
     ws.on_upgrade(move |socket| {
-        axum_channels::handle_connect(socket, ConnFormat::JSON, registry.clone())
+        axum_channels::handle_connect(socket, ConnFormat::Message, registry.clone())
     })
 }
 
-async fn simple_handler(
-    ws: WebSocketUpgrade,
-    Extension(registry): Extension<Arc<Mutex<Registry>>>,
-) -> impl IntoResponse {
-    println!("simple_handler");
-    ws.on_upgrade(move |socket| {
-        axum_channels::handle_connect(socket, ConnFormat::Simple, registry.clone())
-    })
-}
-
+// FIXME: lobby should be rolled into Registry;
+// i.e. a join request to a specifically-formatted key should
+// optionally spawn a new channel topic;
+// i.e.
+// join game:foo should use the GameChannel behavior for messages to foo.
+// Rather than dithering about with broadcast subscriptions, it may be beneficial to
+// have a key-value fanout rather then direct mpsc/broadcast connections;
+// this refactor will also help in the future where a distributed pubsub may be desireable.
+// (see Phoenix.PubSub.Redis/PG2, etc)
 #[derive(Debug)]
 struct Lobby(Arc<Mutex<Registry>>);
 
@@ -184,13 +201,13 @@ struct IndexTemplate<'a> {
     name: &'a str,
 }
 
-trait Partial: Template + Display {}
+// trait Partial: Template + Display {}
 
-impl Partial for GameTemplate<'_> {}
-impl Partial for IndexTemplate<'_> {}
+// impl Partial for GameTemplate<'_> {}
+// impl Partial for IndexTemplate<'_> {}
 
-#[derive(Template)]
-#[template(path = "layout.html")]
-struct Layout {
-    inner: Box<dyn Partial>,
-}
+// #[derive(Template)]
+// #[template(path = "layout.html")]
+// struct Layout<'a> {
+//     inner: Box<dyn Partial + 'a>,
+// }

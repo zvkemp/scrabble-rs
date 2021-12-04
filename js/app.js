@@ -13,19 +13,22 @@ import css from "../css/app.css"
 // import socket from "./socket"
 import Scrabble from "./scrabble"
 // import LiveSocket from "phoenix_live_view"
-// import { Socket } from "phoenix"
+import { Socket } from "phoenix"
 
 // Import local files
 //
 // Local files can be imported directly using relative paths, for example:
 let idToken = document.querySelector('meta[name="id-token"]');
-// if (idToken) {
-//   let socket = new Socket("/simple", { params: { token: idToken.getAttribute('content') } })
-//   socket.connect();
-//   const scrabble = new Scrabble(socket);
-// }
 
-window.socket = new WebSocket(`ws://${document.location.host}/simple?id_token=${idToken}`);
+if (idToken) {
+  let socket = new Socket("/simple", { params: { token: idToken.getAttribute('content') } })
+  socket.connect();
+  // window.socket = new WebSocket(`ws://${document.location.host}/simple?id_token=${idToken.getAttribute('content')}`);
+  const scrabble = new Scrabble(socket);
+  window.scrabble = scrabble;
+}
+
+// window.socket = new WebSocket(`ws://${document.location.host}/simple?id_token=${idToken}`);
 
 
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content");
