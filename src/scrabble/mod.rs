@@ -8,7 +8,7 @@ use rand::{prelude::StdRng, thread_rng, SeedableRng};
 use rand::{seq::SliceRandom, Rng};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Game {
     board: Board,
     players: Vec<Player>,
@@ -19,7 +19,7 @@ pub struct Game {
     state: State,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 enum State {
     Pre,
     Started,
@@ -49,7 +49,7 @@ impl std::fmt::Debug for Game {
 }
 
 // FIXME: this should also have a uuid
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct Player(pub(crate) String);
 
 pub type Rack = Vec<Tile>;
@@ -224,10 +224,10 @@ impl From<&str> for Player {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Board(Vec<Square>);
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Bag(Vec<Tile>);
 
 #[derive(Serialize, Deserialize, PartialEq, Copy, Clone)]
@@ -738,7 +738,7 @@ pub struct Turn {
     // score!
 }
 
-#[derive(Deserialize, Serialize, Debug, Eq, PartialEq)]
+#[derive(Clone, Deserialize, Serialize, Debug, Eq, PartialEq)]
 pub struct TurnScore {
     scores: Vec<(String, isize)>,
 }
@@ -802,7 +802,7 @@ impl Turn {
 
 // 0 * 3 % 16
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 enum Square {
     Blank,
     Tile(Tile),

@@ -7,18 +7,12 @@ use axum::{
 };
 use axum_channels::{
     channel::{self, ChannelBehavior},
-    message::{DecoratedMessage, Message, MessageReply},
+    message::{DecoratedMessage, Message},
     registry::Registry,
-    types::Token,
     ConnFormat,
 };
 use scrabble::{Game, Player};
-use std::{
-    fmt::Display,
-    sync::{Arc, Mutex},
-};
-use tokio::sync::mpsc::UnboundedSender;
-use tracing_subscriber::EnvFilter;
+use std::sync::{Arc, Mutex};
 
 mod scrabble;
 
@@ -31,11 +25,8 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     let registry = Arc::new(Mutex::new(Registry::default()));
-    let lobby = Box::new(Lobby(registry.clone()));
-
     let mut locked = registry.lock().unwrap();
-
-    locked.add_channel("lobby".to_string(), lobby);
+    locked.register_behavior("game".to_string(), Box::new(GameChannel::new()));
 
     drop(locked);
 
@@ -89,75 +80,7 @@ async fn handler(
     })
 }
 
-// FIXME: lobby should be rolled into Registry;
-// i.e. a join request to a specifically-formatted key should
-// optionally spawn a new channel topic;
-// i.e.
-// join game:foo should use the GameChannel behavior for messages to foo.
-// Rather than dithering about with broadcast subscriptions, it may be beneficial to
-// have a key-value fanout rather then direct mpsc/broadcast connections;
-// this refactor will also help in the future where a distributed pubsub may be desireable.
-// (see Phoenix.PubSub.Redis/PG2, etc)
-#[derive(Debug)]
-struct Lobby(Arc<Mutex<Registry>>);
-
-impl ChannelBehavior for Lobby {
-    fn handle_message(&mut self, message: &DecoratedMessage) -> Option<Message> {
-        match &message.inner {
-            Message::Channel { text, .. } => {
-                return self.handle_message_inner(
-                    message.token,
-                    message.reply_to.as_ref(),
-                    text.to_string(),
-                );
-            }
-            // these should never happen
-            Message::Join { .. } => todo!(),
-            Message::Leave { .. } => todo!(),
-            Message::DidJoin { .. } => todo!(),
-            Message::Reply(_) => todo!(),
-            Message::Broadcast(_) => todo!(),
-        };
-
-        None
-    }
-}
-
-impl Lobby {
-    fn handle_message_inner(
-        &mut self,
-        token: Token,
-        reply_to: Option<&UnboundedSender<Message>>,
-        text: String,
-    ) -> Option<Message> {
-        let mut tokens = text.split_whitespace();
-        match tokens.next() {
-            Some("new_game") => {
-                let name = tokens.next().unwrap(); // FIXME
-
-                let mut locked = self.0.lock().unwrap();
-                let game = Box::new(GameChannel::new());
-
-                // FIXME: something something security
-                locked.add_channel(name.to_string(), game);
-
-                reply_to.map(|sender| {
-                    sender.send(Message::Join {
-                        channel_id: name.to_string(),
-                    });
-                });
-
-                return Some(Message::Broadcast(format!("{:#?}", self)));
-                // FIXME: ensure socket joins game!
-            }
-            _ => {
-                eprintln!("unknown command {:?}", text);
-                return None;
-            }
-        }
-    }
-}
-
+#[derive(Clone, Debug)]
 struct GameChannel {
     pub(crate) game: Game,
 }
