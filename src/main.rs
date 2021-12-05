@@ -7,11 +7,12 @@ use axum::{
 };
 use axum_channels::{
     channel::{self, ChannelBehavior},
-    message::{DecoratedMessage, Message},
+    message::{DecoratedMessage, Message, MessageReply},
     registry::Registry,
     ConnFormat,
 };
 use scrabble::{Game, Player};
+use serde_json::json;
 use std::sync::{Arc, Mutex};
 
 mod scrabble;
@@ -103,6 +104,16 @@ impl ChannelBehavior for GameChannel {
         self.game
             .add_player(player)
             .map_err(|_| channel::JoinError::Unknown)?;
+
+        message.broadcast_reply_to.as_ref().map(|socket| {
+            let state = MessageReply::Event {
+                event: "player-state".to_string(),
+                payload: json!({"game": self.game.clone()}),
+                channel_id: message.channel_id().clone(),
+            };
+
+            socket.send(state).unwrap();
+        });
 
         println!("{:#?}", self.game);
 
