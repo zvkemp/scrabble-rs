@@ -88,9 +88,9 @@ struct GameChannel {
 
 impl GameChannel {
     pub fn new() -> Self {
-        GameChannel {
-            game: Game::default(),
-        }
+        let game = Game::testing();
+
+        GameChannel { game }
     }
 }
 
@@ -108,7 +108,7 @@ impl ChannelBehavior for GameChannel {
         message.broadcast_reply_to.as_ref().map(|socket| {
             let state = MessageReply::Event {
                 event: "player-state".to_string(),
-                payload: json!({"game": self.game.clone()}),
+                payload: json!({ "game": self.game }),
                 channel_id: message.channel_id().clone(),
             };
 

@@ -1,12 +1,8 @@
-use std::{
-    collections::HashSet,
-    ops::{Range, Sub},
-    str::FromStr,
-};
-
-use rand::{prelude::StdRng, thread_rng, SeedableRng};
+use rand::thread_rng;
 use rand::{seq::SliceRandom, Rng};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::str::FromStr;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Game {
@@ -17,6 +13,8 @@ pub struct Game {
     racks: Vec<Rack>,
     scores: Vec<Vec<TurnScore>>,
     state: State,
+    size: usize,
+    board_type: &'static str,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -55,6 +53,14 @@ pub struct Player(pub(crate) String);
 pub type Rack = Vec<Tile>;
 
 impl Game {
+    pub fn testing() -> Self {
+        let mut game = Self::default();
+
+        game.board.0[1] = Square::Tile(Tile::Char('H'));
+        game.board.0[2] = Square::Tile(Tile::Blank(Some('I')));
+
+        game
+    }
     pub fn check_complete() {
         todo!()
     }
@@ -246,11 +252,14 @@ impl Default for Game {
             racks: Default::default(),
             scores: Default::default(),
             state: Default::default(),
+            size: BOARD_SIZE,
+            board_type: BOARD_TYPE,
         }
     }
 }
 
 pub static BOARD_SIZE: usize = 15;
+pub static BOARD_TYPE: &str = "standard";
 static INDEX_OVERFLOW: usize = 15 * 15;
 
 impl std::fmt::Debug for Tile {

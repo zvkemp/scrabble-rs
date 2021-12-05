@@ -11,6 +11,20 @@ const boni = {
   "quad_letter": "4x letter",
 };
 
+const letter_boni = {
+  "2": "double_letter",
+  "3": "triple_letter",
+  "4": "quad_letter"
+};
+
+const word_boni = {
+  "2": "double_word",
+  "3": "triple_word",
+  "4": "quad_word"
+};
+
+window.d3select = select;
+
 class Scrabble {
   constructor(socket) {
     window.game = this
@@ -22,6 +36,7 @@ class Scrabble {
     this.socket = socket
     this.cursor = -1;
     this.size = 15;
+
     this.element = select("section#board-container");
     this.header = select("section#board-header");
     this.rack_container = select("section.rack-container");
@@ -60,7 +75,6 @@ class Scrabble {
   joinGameAs(token, name) {
     this.channel = this.socket.channel(`game:${this.game_id}`, { token: token });
     window.channel = this.channel;
-    debugger;
     this.channel.join()
       .receive("ok", resp => { console.log(`joined game:${this.game_id}`, resp) })
       .receive("error", resp => { console.error("unable to join", resp) })
@@ -144,7 +158,6 @@ class Scrabble {
     if (game.current_player) {
       this.current_player = game.current_player // FIXME: where does this logic belong?
     }
-
 
     this.element.classed(game.board_type, true);
     this.flash_container.classed(game.board_type, true);
@@ -448,13 +461,24 @@ class Scrabble {
     }
   }
 
+  // maps new serialized tile to old format
+  map_bonus(d) {
+    if (d.WordBonus) {
+      return word_boni[d.WordBonus]
+    } else if (d.LetterBonus) {
+      return letter_boni[d.LetterBonus]
+    }
+  }
+
   drawSquares() {
     let container = this.element;
     let data = this.data;
 
     container.classed('current', this.current_player == this.player);
 
+
     let squares = container.selectAll('div.board-square').data(data);
+    debugger;
     let enterJoin = squares
       .enter()
       .append('div')
@@ -463,18 +487,24 @@ class Scrabble {
     enterJoin.on('click', (d, i) => this.clickSetCursor(i))
 
     let currentSquares = squares.merge(enterJoin);
-    currentSquares.attr('class', d => `board-square ${d.bonus || ''} letter-${d && d.character}`)
-    currentSquares.classed('bonus', d => !!d.bonus)
-    currentSquares.classed("tile", d => d.character);
-    currentSquares.classed("tile-blank", d => d.character && d.character[0] == ":");
+    currentSquares.attr('class', d => `board-square ${this.map_bonus(d) || ''} letter-${d.Tile?.Char || d.Tile?.Blank?.Char}`)
+    currentSquares.classed('bonus', d => !!this.map_bonus(d))
+    currentSquares.classed("tile", d => d.Tile);
+    currentSquares.classed("tile-blank", d => d.Tile?.Blank);
     currentSquares.classed("tile-proposed", (d, i) => this.proposed[i]);
     currentSquares.classed("last-turn", (_d, i) => this.last_turn_indices.indexOf(i) >= 0);
     currentSquares.filter((d) => d.has_cursor).classed("cursor", true);
     currentSquares.html((d, i) => {
-      if (d.character && d.character[0] == ":") {
-        return d.character[1];
-      } else if (d.bonus) {
-        return boni[d.bonus]
+      console.info(d);
+
+      let bonus;
+
+      if (d.Tile && d.Tile.Char) {
+        return d.Tile.Char
+      } else if (d.Tile && d.Tile.Blank) {
+        return d.Tile.Blank;
+      } else if (bonus = this.map_bonus(d)) {
+        return boni[bonus];
       } else {
         return d.character || this.proposed[i] || "";
       }
