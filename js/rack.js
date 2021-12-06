@@ -150,8 +150,8 @@ class Rack {
       if (this.squares[i] && this.squares[i].used) { this.squares[i] = undefined }
     }
 
-    toInsert.forEach(char => {
-      this.squares[this._lastEmptyIndex()] = { char: char };
+    toInsert.forEach(tile => {
+      this.squares[this._lastEmptyIndex()] = tile;
     });
 
 
@@ -168,13 +168,14 @@ class Rack {
       .attr('class', 'rack-square tile')
 
     let currentSquares = squares.merge(enterJoin);
-    currentSquares.html(d => d && (d.char === "BLANK" ? "" : d.char));
-    currentSquares.attr('class', d => `rack-square tile letter-${d && d.char}`)
-    currentSquares.classed('data-letter', d => d && d.char);
+    currentSquares.html(d => d && (d.Blank === null ? "" : d.Char));
+    currentSquares.attr('class', d => `rack-square tile letter-${d?.Char}`);
+    currentSquares.classed('data-letter', d => d?.Char);
     currentSquares.classed("empty", d => d === undefined);
-    currentSquares.classed("used", d => d && d.used)
+    currentSquares.classed("used", d => d && d.used);
 
     let component = this;
+
     currentSquares.on("click", function(e, d) {
       component.owner.unfocus();
       component.cursor = d;
@@ -193,18 +194,10 @@ class Rack {
     this.draw();
   }
 
-  _populateSquares() {
-  }
-
   _lastEmptyIndex() {
     for (let i = (this.size - 1); i > 0; i--) {
       if (this.squares[i] === undefined) { return i }
     }
-  }
-
-  _setLastEmptySquare(e, i) {
-    let idx = this._lastEmptyIndex();
-    this.squares[idx] = { char: e, i: i };
   }
 }
 

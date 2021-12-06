@@ -478,7 +478,6 @@ class Scrabble {
 
 
     let squares = container.selectAll('div.board-square').data(data);
-    debugger;
     let enterJoin = squares
       .enter()
       .append('div')
@@ -537,6 +536,7 @@ class Scrabble {
   }
 
   drawScores() {
+    return; // FIXME:
     // FIXME: this is a mess
     let scoreCount = 0;
     for (let player in this.scores) {

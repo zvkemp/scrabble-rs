@@ -1,7 +1,8 @@
 use rand::thread_rng;
 use rand::{seq::SliceRandom, Rng};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -85,13 +86,27 @@ impl Game {
     }
 
     // FIXME ensure players are unique
-    pub fn add_player(&mut self, player: Player) -> Result<(), Error> {
+    pub fn add_player(&mut self, player: Player) -> Result<usize, Error> {
         self.players.push(player);
-        Ok(())
+        let index = self.players.len() - 1;
+
+        self.racks.push(Rack::default());
+        self.fill_rack_at(index)?;
+        Ok(index)
+    }
+
+    pub fn rack(&self, index: usize) -> Result<&Rack, Error> {
+        if index < self.racks.len() {
+            Ok(&self.racks[index])
+        } else {
+            Err(Error::IndexOutOfBounds)
+        }
     }
 
     fn init_racks(&mut self) -> Result<(), Error> {
-        for index in 0..self.players.len() {
+        let start = self.racks.len();
+
+        for index in start..self.players.len() {
             self.racks.push(Rack::default());
             self.fill_rack_at(index)?;
         }
@@ -112,6 +127,36 @@ impl Game {
         }
 
         Ok(())
+    }
+
+    /// Tiles left in the bag or other racks
+    pub fn remaining_tiles(&self, player_index: usize) -> Vec<(String, usize)> {
+        let mut remaining = HashMap::new();
+        for (index, rack) in self.racks.iter().enumerate() {
+            if index != player_index {
+                for tile in rack.iter() {
+                    *remaining.entry(tile.to_string()).or_insert(0usize) += 1;
+                }
+            }
+        }
+
+        for tile in self.bag.0.iter() {
+            *remaining.entry(tile.to_string()).or_insert(0usize) += 1;
+        }
+
+        let mut collection = remaining.into_iter().collect::<Vec<(String, usize)>>();
+
+        collection.sort_by(|(a, _), (b, _)| {
+            if a.as_str() == "BLANK" {
+                Ordering::Greater
+            } else if b.as_str() == "BLANK" {
+                Ordering::Less
+            } else {
+                a.cmp(b)
+            }
+        });
+
+        collection
     }
 
     fn init_player_index(&mut self) -> Result<(), Error> {
@@ -236,7 +281,7 @@ pub struct Board(Vec<Square>);
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Bag(Vec<Tile>);
 
-#[derive(Serialize, Deserialize, PartialEq, Copy, Clone)]
+#[derive(Hash, Serialize, Deserialize, Eq, PartialEq, Copy, Clone)]
 pub enum Tile {
     Char(char),
     Blank(Option<char>),
@@ -278,6 +323,13 @@ impl Tile {
             Tile::Char(char) => Some(char),
             Tile::Blank(Some(char)) => Some(char),
             _ => None,
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        match *self {
+            Tile::Char(char) | Tile::Blank(Some(char)) => format!("{}", char),
+            Tile::Blank(None) => "BLANK".to_string(),
         }
     }
 }
@@ -352,6 +404,7 @@ pub enum Error {
     GameOver,
     BlankTileInTurn,
     CannotPass,
+    IndexOutOfBounds,
 }
 
 impl Board {
@@ -997,13 +1050,13 @@ mod test {
         assert_eq!(game.racks[0].len(), 7);
         assert_eq!(game.racks[1].len(), 7);
 
-        println!("{:#?}", game);
+        // println!("{:#?}", game);
 
         let turn_a = Turn {
             tiles: vec![(112, l!('M')), (113, l!('A')), (114, l!('R'))],
         };
         game.play(turn_a).unwrap();
-        println!("{:#?}", game);
+        // println!("{:#?}", game);
 
         assert_eq!(
             game.racks[0],
@@ -1026,7 +1079,7 @@ mod test {
         };
 
         game.play(turn_b).unwrap();
-        println!("{:#?}", game);
+        // println!("{:#?}", game);
 
         assert_eq!(game.racks[1], vec![l!('E'), l!('I'), l!('S'), l!('P')]);
 
@@ -1062,7 +1115,7 @@ mod test {
         };
 
         game.play(turn_c_1).unwrap();
-        println!("{:#?}", game);
+        // println!("{:#?}", game);
 
         assert_eq!(
             game.scores[0],
@@ -1086,7 +1139,7 @@ mod test {
         };
 
         game.play(turn_d).unwrap();
-        println!("{:#?}", game);
+        // println!("{:#?}", game);
 
         assert!(game.is_over());
 
@@ -1138,6 +1191,11 @@ mod test {
         assert_eq!(game.racks[0].len(), 7);
         assert_eq!(game.racks[1].len(), 7);
 
+        let remaining_0 = game.remaining_tiles(0);
+        let remaining_1 = game.remaining_tiles(1);
+
+        dbg!(remaining_0);
+
         let turn_a = Turn {
             tiles: vec![
                 (111, l!('S')),
@@ -1149,7 +1207,7 @@ mod test {
         };
 
         game.play(turn_a).unwrap();
-        println!("{:#?}", game);
+        // println!("{:#?}", game);
 
         assert_eq!(
             game.scores[0],
