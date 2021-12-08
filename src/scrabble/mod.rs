@@ -1,6 +1,7 @@
 use rand::thread_rng;
 use rand::{seq::SliceRandom, Rng};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
@@ -83,6 +84,30 @@ impl Game {
             self.scores.push(Vec::new())
         }
         Ok(())
+    }
+
+    // This is perhaps not ideal, but is easier than defining a custom serializer
+    pub fn player_state(&self, player_index: usize) -> serde_json::Value {
+        json!({
+            "game": {
+                "board": self.board,
+                "board_type": self.board_type,
+                "player_index": self.player_index,
+                "players": self.players,
+                "scores": self.scores,
+                "size": self.size,
+                "state": self.state,
+                "current_player": self.current_player(),
+            }
+        })
+    }
+
+    pub fn current_player(&self) -> Option<&str> {
+        match self.state {
+            State::Pre => None,
+            State::Started => Some(self.players[self.player_index].0.as_str()),
+            State::Over => None,
+        }
     }
 
     // FIXME ensure players are unique

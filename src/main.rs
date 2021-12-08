@@ -1,13 +1,13 @@
 use askama::Template;
 use axum::{
-    extract::{Extension, Path, WebSocketUpgrade},
+    extract::{Extension, Path, Query, WebSocketUpgrade},
     response::{Html, IntoResponse},
     routing::get,
     AddExtensionLayer, Router,
 };
 use axum_channels::{
     channel::{self, ChannelBehavior},
-    message::{DecoratedMessage, Message, MessageReply},
+    message::{DecoratedMessage, Message, MessageKind, MessageReply},
     registry::Registry,
     ConnFormat,
 };
@@ -34,7 +34,7 @@ async fn main() {
     let app = Router::new()
         .route("/simple/websocket", get(handler))
         .route("/", get(index))
-        .route("/play/:game_id", get(show_game))
+        .route("/play/:game_id/:player", get(show_game))
         .route("/js/index.js", get(index_js))
         .route("/js/index.js.map", get(index_js_map))
         .route("/css/styles.css", get(css))
@@ -63,10 +63,10 @@ async fn css() -> &'static str {
     include_str!("../assets/index.css")
 }
 
-async fn show_game(Path(game_id): Path<String>) -> Html<String> {
+async fn show_game(Path((game_id, player)): Path<(String, String)>) -> Html<String> {
     let template = GameTemplate {
         game_id: game_id.as_str(),
-        player: "fixme",
+        player: player.as_str(),
         token: "fixme",
     };
     Html(template.render().unwrap())
@@ -77,7 +77,7 @@ async fn handler(
     Extension(registry): Extension<Arc<Mutex<Registry>>>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| {
-        axum_channels::handle_connect(socket, ConnFormat::Message, registry.clone())
+        axum_channels::handle_connect(socket, ConnFormat::Phoenix, registry.clone())
     })
 }
 
@@ -95,8 +95,51 @@ impl GameChannel {
 }
 
 impl ChannelBehavior for GameChannel {
-    fn handle_message(&mut self, _message: &DecoratedMessage) -> Option<Message> {
-        None
+    fn handle_message(&mut self, message: &DecoratedMessage) -> Option<Message> {
+        match &message.inner.kind {
+            MessageKind::Event => match message.inner.event.as_str() {
+                "start" => {
+                    self.game.start();
+
+                    Some(Message {
+                        kind: MessageKind::BroadcastIntercept,
+                        channel_id: message.channel_id().clone(),
+                        channel_sender: None,
+                        join_ref: None,
+                        msg_ref: message.msg_ref.clone(),
+                        event: "player-state".into(),
+                        payload: json!(null),
+                    })
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn handle_out(&mut self, message: &DecoratedMessage) -> Option<Message> {
+        match &message.inner.kind {
+            MessageKind::BroadcastIntercept => {
+                match message.inner.event.as_str() {
+                    "player-state" => {
+                        let payload = self.game.player_state(0); // FIXME: use real conn state index
+                        let reply = Message {
+                            kind: MessageKind::Push,
+                            channel_sender: None,
+                            join_ref: None,
+                            msg_ref: message.msg_ref.clone(),
+                            channel_id: message.channel_id().clone(),
+                            event: message.inner.event.clone(),
+                            payload,
+                        };
+
+                        Some(reply)
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
     }
 
     fn handle_join(&mut self, message: &DecoratedMessage) -> Result<(), channel::JoinError> {
@@ -112,10 +155,11 @@ impl ChannelBehavior for GameChannel {
         message.broadcast_reply_to.as_ref().map(|socket| {
             let state = MessageReply::Event {
                 event: "player-state".to_string(),
-                payload: json!({ 
-                    "game": self.game, 
-                    "rack": self.game.rack(player_index).unwrap(), 
-                    "remaining": self.game.remaining_tiles(player_index) }),
+                payload: json!({
+                    "game": self.game,
+                    "rack": self.game.rack(player_index).unwrap(),
+                    "remaining": self.game.remaining_tiles(player_index)
+                }),
                 channel_id: message.channel_id().clone(),
             };
 
