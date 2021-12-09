@@ -58,7 +58,7 @@ class Rack {
 
   searchUnusedLetter(char) {
     for (let i = 0; i < this.squares.length; i++) {
-      if (this.squares[i] && !this.squares[i].used && this.squares[i].char == char) {
+      if (this.squares[i] && !this.squares[i].used && this.squares[i].Char == char) {
         this.squares[i].used = true;
         this.draw();
         return char;
@@ -80,7 +80,7 @@ class Rack {
     if (draw === undefined) { draw = true }
 
     for (let i = (this.size - 1); i >= 0; i--) {
-      if (this.squares[i] && this.squares[i].used && this.squares[i].char == char) {
+      if (this.squares[i] && this.squares[i].used && this.squares[i].Char == char) {
         this.squares[i].used = false;
         if (draw) { this.draw() }
         return true;
@@ -94,7 +94,7 @@ class Rack {
     if (this.cursor) {
       let searchSegment = this.squares.slice(this.cursor);
       for (let i = 0; i < searchSegment.length; i++) {
-        if (searchSegment[i] && searchSegment[i].char == char) {
+        if (searchSegment[i] && searchSegment[i].Char == char) {
           return this.cursor + i;
         }
       }
@@ -102,7 +102,7 @@ class Rack {
 
     // otherwise search the rest
     for (let i = 0; i < this.squares.length; i++) {
-      if (this.squares[i] && this.squares[i].char == char) {
+      if (this.squares[i] && this.squares[i].Char == char) {
         return i;
       }
     }

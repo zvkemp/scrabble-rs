@@ -14,6 +14,9 @@ use axum_channels::{
 use scrabble::{Game, Player};
 use serde_json::json;
 use std::sync::{Arc, Mutex};
+use tracing::{debug, error};
+
+use crate::scrabble::Turn;
 
 mod scrabble;
 
@@ -94,12 +97,21 @@ impl GameChannel {
     }
 }
 
+impl GameChannel {
+    fn play(&mut self, payload: serde_json::Value) -> Result<(), scrabble::Error> {
+        let turn = payload.try_into()?;
+        self.game.play(turn)?;
+
+        Ok(())
+    }
+}
+
 impl ChannelBehavior for GameChannel {
     fn handle_message(&mut self, message: &DecoratedMessage) -> Option<Message> {
         match &message.inner.kind {
             MessageKind::Event => match message.inner.event.as_str() {
                 "start" => {
-                    self.game.start();
+                    let _ = self.game.start();
 
                     Some(Message {
                         kind: MessageKind::BroadcastIntercept,
@@ -110,6 +122,26 @@ impl ChannelBehavior for GameChannel {
                         event: "player-state".into(),
                         payload: json!(null),
                     })
+                }
+
+                "play" => {
+                    // FIXME: ensure play comes from current player
+                    match self.play(message.inner.payload.clone()) {
+                        Ok(_) => Some(Message {
+                            kind: MessageKind::BroadcastIntercept,
+                            channel_id: message.channel_id().clone(),
+                            channel_sender: None,
+                            join_ref: None,
+                            msg_ref: message.msg_ref.clone(),
+                            event: "player-state".into(),
+                            payload: json!(null),
+                        }),
+                        Err(e) => {
+                            error!("{:?}", e);
+
+                            None
+                        }
+                    }
                 }
                 _ => None,
             },
@@ -142,38 +174,38 @@ impl ChannelBehavior for GameChannel {
         }
     }
 
-    fn handle_join(&mut self, message: &DecoratedMessage) -> Result<(), channel::JoinError> {
-        let player = Player(format!("{:?}", message.token));
+    fn handle_join(&mut self, message: &DecoratedMessage) -> Result<(), channel::Error> {
+        debug!("{:?}", message);
+        let player = Player(
+            message
+                .inner
+                .payload
+                .get("player")
+                .and_then(|p| p.as_str())
+                .ok_or_else(|| channel::Error::Other("player not found".into()))?
+                .into(),
+        );
+
         let player_index = self
             .game
             .add_player(player)
-            .map_err(|_| channel::JoinError::Unknown)?;
+            .map_err(|e| channel::Error::Join {
+                reason: format!("{:?}", e),
+            })?;
 
-        dbg!(&self.game);
-
-        // FIXME: broadcast_reply_to isn't a great name for what this is, because it goes directly to one ws writer socket.
-        message.broadcast_reply_to.as_ref().map(|socket| {
+        if let Some(socket) = message.ws_reply_to.as_ref() {
             let state = MessageReply::Event {
                 event: "player-state".to_string(),
                 payload: json!({
                     "game": self.game,
-                    "rack": self.game.rack(player_index).unwrap(),
+                    "rack": self.game.rack(player_index).map_err(|e| channel::Error::Other(e.to_string()))?,
                     "remaining": self.game.remaining_tiles(player_index)
                 }),
                 channel_id: message.channel_id().clone(),
             };
 
-            // let rack_msg = MessageReply::Event {
-            //     event: "rack".to_string(),
-            //     payload: json!({ "rack": self.game.rack(player_index).unwrap() }),
-            //     channel_id: message.channel_id().clone(),
-            // };
-
-            socket.send(state).unwrap();
-            // socket.send(rack_msg).unwrap();
-        });
-
-        // println!("{:#?}", self.game);
+            let _ = socket.send(state);
+        };
 
         Ok(())
     }

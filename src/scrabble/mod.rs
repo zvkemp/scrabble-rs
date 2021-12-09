@@ -5,6 +5,7 @@ use serde_json::json;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
+use tracing::debug;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Game {
@@ -68,22 +69,14 @@ impl Game {
     }
 
     pub fn start(&mut self) -> Result<(), Error> {
-        self.init_racks()?;
-        self.init_player_index()?;
-        self.init_scores()?;
+        self.init_racks();
+        self.init_player_index();
         self.state = State::Started;
         Ok(())
     }
 
     pub fn is_over(&self) -> bool {
         matches!(self.state, State::Over)
-    }
-
-    fn init_scores(&mut self) -> Result<(), Error> {
-        for _ in &self.players {
-            self.scores.push(Vec::new())
-        }
-        Ok(())
     }
 
     // This is perhaps not ideal, but is easier than defining a custom serializer
@@ -98,7 +91,9 @@ impl Game {
                 "size": self.size,
                 "state": self.state,
                 "current_player": self.current_player(),
-            }
+            },
+            "rack": self.racks[player_index],
+            "remaining": self.remaining_tiles(player_index)
         })
     }
 
@@ -112,11 +107,18 @@ impl Game {
 
     // FIXME ensure players are unique
     pub fn add_player(&mut self, player: Player) -> Result<usize, Error> {
+        for (index, existing) in self.players.iter().enumerate() {
+            if player == *existing {
+                return Ok(index);
+            }
+        }
+
         self.players.push(player);
         let index = self.players.len() - 1;
 
+        self.scores.push(Default::default());
         self.racks.push(Rack::default());
-        self.fill_rack_at(index)?;
+        self.fill_rack_at(index);
         Ok(index)
     }
 
@@ -128,30 +130,26 @@ impl Game {
         }
     }
 
-    fn init_racks(&mut self) -> Result<(), Error> {
+    fn init_racks(&mut self) {
         let start = self.racks.len();
 
         for index in start..self.players.len() {
             self.racks.push(Rack::default());
-            self.fill_rack_at(index)?;
+            self.fill_rack_at(index);
         }
-
-        Ok(())
     }
 
-    fn fill_rack_at(&mut self, index: usize) -> Result<(), Error> {
+    fn fill_rack_at(&mut self, index: usize) {
         let rack = &mut self.racks[index];
 
         while rack.len() < 7 {
             match self.bag.pop() {
                 None => {
-                    return Ok(());
+                    return;
                 }
                 Some(tile) => rack.push(tile),
             }
         }
-
-        Ok(())
     }
 
     /// Tiles left in the bag or other racks
@@ -184,9 +182,8 @@ impl Game {
         collection
     }
 
-    fn init_player_index(&mut self) -> Result<(), Error> {
+    fn init_player_index(&mut self) {
         self.player_index = thread_rng().gen_range(0..self.players.len());
-        Ok(())
     }
 
     pub fn play(&mut self, turn: Turn) -> Result<(), Error> {
@@ -197,17 +194,20 @@ impl Game {
         }
         // FIXME: make this an atomic operation? Need something like immutable data;
         // the validation should otherwise check everything
+
+        debug!("{:?}", self.racks);
+        debug!("turn={:?}", turn);
         self.validate_turn(&turn)?;
         self.score_turn(&turn)?;
         self.spend_tiles(&turn)?;
         self.board.commit_turn(&turn)?;
-        self.fill_rack_at(self.player_index)?;
-        self.next_player()?;
-        self.check_game_over()?;
+        self.fill_rack_at(self.player_index);
+        self.next_player();
+        self.check_game_over();
         Ok(())
     }
 
-    fn check_game_over(&mut self) -> Result<(), Error> {
+    fn check_game_over(&mut self) {
         if self.bag.0.is_empty() && self.racks.iter().any(|r| r.is_empty()) {
             self.state = State::Over;
 
@@ -222,8 +222,6 @@ impl Game {
         }
 
         // FIXME: check consecutive passes
-
-        Ok(())
     }
 
     pub fn swap(&mut self, turn: Turn) -> Result<(), Error> {
@@ -243,13 +241,72 @@ impl Game {
 
     fn validate_turn(&mut self, turn: &Turn) -> Result<(), Error> {
         turn.validate()?;
+
+        for index in turn.indexes() {
+            match self.board.0.get(*index) {
+                Some(Square::Tile(..)) => {
+                    return Err(Error::SquareOccupied(*index));
+                }
+                _ => {}
+            }
+        }
+
+        self.validate_connected(turn)?;
+
+        // This is called here on a clone of the rack to ensure the tiles exist before deleting them from the actual rack.
         // FIXME: any way to do this once? This clone currently happens again in the commit.
         Self::spend_tiles_inner(turn, self.racks[self.player_index].clone())?;
-        // FIXME: validate connected to other words, or on space 112 (initial turn)
-        // FIXME: validate that turn indexes aren't already occupied
-        // FIXME: validate words in dictionary
         Ok(())
     }
+
+    fn validate_connected(&mut self, turn: &Turn) -> Result<(), Error> {
+        if turn.indexes().find(|idx| **idx == BOARD_CENTER).is_some() {
+            return Ok(());
+        }
+
+        for index in turn.indexes() {
+            for connected in Self::connected_indexes(*index) {
+                if matches!(self.board.0.get(connected), Some(Square::Tile(..))) {
+                    return Ok(());
+                }
+            }
+        }
+
+        Err(Error::NotConnected)
+    }
+
+    // FIXME: make this a chained iterator to look at all connected indexes on the board
+    fn connected_indexes(index: usize) -> impl Iterator<Item = usize> {
+        let original_row = index / BOARD_SIZE;
+
+        // prev in row; can't break out of original row
+        index
+            .checked_sub(1)
+            .filter(|x| x / BOARD_SIZE == original_row)
+            .into_iter()
+            .chain(
+                // next in row, can't break out of original row
+                index
+                    .checked_add(1)
+                    .filter(|x| x / BOARD_SIZE == original_row)
+                    .into_iter(),
+            )
+            .chain(
+                // col can't be less than 0
+                index.checked_sub(BOARD_SIZE).into_iter(),
+            )
+            .chain(
+                // can't be greater than board size
+                index
+                    .checked_add(BOARD_SIZE)
+                    .filter(|x| *x < INDEX_OVERFLOW)
+                    .into_iter(),
+            )
+    }
+
+    // 0 1 2 3 4
+    // 5 6 7 8 9
+    //
 
     fn score_turn(&mut self, turn: &Turn) -> Result<(), Error> {
         let overlay = Overlay {
@@ -263,10 +320,9 @@ impl Game {
     }
 
     // advance cursor to next player
-    fn next_player(&mut self) -> Result<(), Error> {
+    fn next_player(&mut self) {
         self.player_index += 1;
         self.player_index %= self.players.len();
-        Ok(())
     }
 
     fn spend_tiles(&mut self, turn: &Turn) -> Result<(), Error> {
@@ -278,7 +334,7 @@ impl Game {
 
     fn spend_tiles_inner(turn: &Turn, mut rack: Rack) -> Result<Rack, Error> {
         for (_, tile) in &turn.tiles {
-            // FIXME: handle blanks
+            debug!("searching tile={:?} rack={:?}", tile, rack);
             let index = rack
                 .iter()
                 .position(|rack_tile| match tile {
@@ -330,6 +386,7 @@ impl Default for Game {
 
 pub static BOARD_SIZE: usize = 15;
 pub static BOARD_TYPE: &str = "standard";
+pub static BOARD_CENTER: usize = 112;
 static INDEX_OVERFLOW: usize = 15 * 15;
 
 impl std::fmt::Debug for Tile {
@@ -430,6 +487,16 @@ pub enum Error {
     BlankTileInTurn,
     CannotPass,
     IndexOutOfBounds,
+    TileParse,
+    TurnParse,
+    SquareOccupied(usize),
+    NotConnected,
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 impl Board {
@@ -812,6 +879,7 @@ fn transpose_index(index: usize, direction: &Direction) -> usize {
     }
 }
 
+#[derive(Debug)]
 pub struct Turn {
     tiles: Vec<(usize, Tile)>,
     // map of indexes to letters
@@ -835,6 +903,7 @@ impl Turn {
         self.tiles.iter().map(|(i, _)| i)
     }
 
+    // FIXME: validate words in dictionary
     fn validate(&self) -> Result<(), Error> {
         self.validate_unique_indexes()?;
         self.validate_linear()?;
@@ -877,6 +946,40 @@ impl Turn {
             .filter(|(i, _)| i == index)
             .map(|(_, tile)| tile)
             .next()
+    }
+}
+
+impl TryFrom<serde_json::Value> for Turn {
+    type Error = Error;
+
+    fn try_from(value: serde_json::Value) -> Result<Self, Self::Error> {
+        match value {
+            serde_json::Value::Object(map) => Ok(Turn {
+                tiles: map
+                    .iter()
+                    .map(|(string, char)| {
+                        (
+                            string.parse().unwrap(),
+                            char.as_str().unwrap().parse().unwrap(),
+                        )
+                    })
+                    .collect::<Vec<(usize, Tile)>>(),
+            }),
+            _ => panic!("fixme"),
+        }
+    }
+}
+
+impl FromStr for Tile {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.chars().count() != 1 {
+            return Err(Error::TileParse);
+        } else {
+            let char = s.chars().next().unwrap();
+            Ok(l!(char))
+        }
     }
 }
 

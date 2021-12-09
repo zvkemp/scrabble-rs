@@ -52,7 +52,7 @@ class Scrabble {
 
     this._rack = new Rack(this, "#rack-container", []);
 
-    this.joinGameAs(this.token, this.name);
+    this.joinGameAs(this.token, this.player);
 
     Notification.requestPermission();
   }
@@ -72,14 +72,17 @@ class Scrabble {
     }
   }
 
-  joinGameAs(token, name) {
-    this.channel = this.socket.channel(`game:${this.game_id}`, { token: token });
+  joinGameAs(token, player) {
+    this.channel = this.socket.channel(`game:${this.game_id}-000000`, { player, token });
     window.channel = this.channel;
     this.channel.join()
       .receive("ok", resp => { console.log(`joined game:${this.game_id}`, resp) })
       .receive("error", resp => { console.error("unable to join", resp) })
 
     this.channel.on("player-state", ({ game, rack, remaining }) => {
+
+      console.log({ game, rack, remaining });
+
       if (game) { this.handleGameState({ game }) }
       if (rack) { this.handleRack({ rack }) }
       if (remaining) { this.handleRemaining({ remaining }) }
@@ -338,6 +341,7 @@ class Scrabble {
 
       let component = this;
 
+      // FIXME
       tile.html(function({ bonus }) {
         return boni[bonus];
       }).classed("tile-proposed", false)
@@ -494,8 +498,6 @@ class Scrabble {
     currentSquares.classed("last-turn", (_d, i) => this.last_turn_indices.indexOf(i) >= 0);
     currentSquares.filter((d) => d.has_cursor).classed("cursor", true);
     currentSquares.html((d, i) => {
-      console.info(d);
-
       let bonus;
 
       if (d.Tile && d.Tile.Char) {
