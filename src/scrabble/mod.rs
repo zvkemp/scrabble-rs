@@ -87,7 +87,7 @@ impl Game {
                 "board_type": self.board_type,
                 "player_index": self.player_index,
                 "players": self.players,
-                "scores": self.scores,
+                "scores": self.serializable_scores(),
                 "size": self.size,
                 "state": self.state,
                 "current_player": self.current_player(),
@@ -95,6 +95,17 @@ impl Game {
             "rack": self.racks[player_index],
             "remaining": self.remaining_tiles(player_index)
         })
+    }
+
+    fn serializable_scores(&self) -> HashMap<&str, &[TurnScore]> {
+        let mut map = HashMap::new();
+
+        for (index, player) in self.players.iter().enumerate() {
+            map.entry(player.as_str())
+                .or_insert(self.scores[index].as_slice());
+        }
+
+        dbg!(map)
     }
 
     pub fn current_player(&self) -> Option<&str> {
@@ -243,11 +254,8 @@ impl Game {
         turn.validate()?;
 
         for index in turn.indexes() {
-            match self.board.0.get(*index) {
-                Some(Square::Tile(..)) => {
-                    return Err(Error::SquareOccupied(*index));
-                }
-                _ => {}
+            if matches!(self.board.0.get(*index), Some(Square::Tile(..))) {
+                return Err(Error::SquareOccupied(*index));
             }
         }
 
@@ -260,7 +268,7 @@ impl Game {
     }
 
     fn validate_connected(&mut self, turn: &Turn) -> Result<(), Error> {
-        if turn.indexes().find(|idx| **idx == BOARD_CENTER).is_some() {
+        if turn.indexes().any(|idx| *idx == BOARD_CENTER) {
             return Ok(());
         }
 
@@ -353,6 +361,12 @@ impl Game {
 impl From<&str> for Player {
     fn from(name: &str) -> Self {
         Player(name.to_owned())
+    }
+}
+
+impl Player {
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
     }
 }
 
@@ -723,6 +737,10 @@ impl Overlay<'_> {
             scores.push((String::from(&word), self.score_word(&word)))
         }
 
+        if self.turn.is_bingo() {
+            scores.push((String::from("*"), 50));
+        }
+
         Ok(TurnScore { scores })
     }
 }
@@ -839,7 +857,7 @@ impl<S: GetChar> Iterator for Words<'_, S> {
 }
 
 // Word uniqueness is based on the indexes played, not the word itself (allow for duplicates)
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Default, Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Word {
     indexes: Vec<usize>,
     string: String,
@@ -847,10 +865,7 @@ pub struct Word {
 
 impl Word {
     pub fn new() -> Self {
-        Word {
-            indexes: Vec::new(),
-            string: String::new(),
-        }
+        Default::default()
     }
 
     pub fn push(&mut self, index: usize, char: char) {
@@ -901,6 +916,10 @@ pub struct TurnScore {
 impl Turn {
     fn indexes(&self) -> impl Iterator<Item = &usize> {
         self.tiles.iter().map(|(i, _)| i)
+    }
+
+    fn is_bingo(&self) -> bool {
+        self.tiles.len() >= 7
     }
 
     // FIXME: validate words in dictionary
@@ -975,7 +994,7 @@ impl FromStr for Tile {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.chars().count() != 1 {
-            return Err(Error::TileParse);
+            Err(Error::TileParse)
         } else {
             let char = s.chars().next().unwrap();
             Ok(l!(char))
@@ -1033,10 +1052,6 @@ impl Square {
 #[cfg(test)]
 mod test {
     use super::*;
-
-    #[test]
-    fn test_game_play_word() {}
-    fn test_game_score_word() {}
 
     fn test_board_a() -> &'static str {
         "

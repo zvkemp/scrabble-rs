@@ -1,19 +1,24 @@
 use askama::Template;
 use axum::{
     extract::{Extension, Path, Query, WebSocketUpgrade},
+    http,
     response::{Html, IntoResponse},
     routing::get,
     AddExtensionLayer, Router,
 };
 use axum_channels::{
-    channel::{self, ChannelBehavior},
+    channel::{self, ChannelBehavior, Presence},
     message::{DecoratedMessage, Message, MessageKind, MessageReply},
     registry::Registry,
+    types::{ChannelId, Token},
     ConnFormat,
 };
 use scrabble::{Game, Player};
 use serde_json::json;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex},
+};
 use tracing::{debug, error};
 
 use crate::scrabble::Turn;
@@ -80,20 +85,34 @@ async fn handler(
     Extension(registry): Extension<Arc<Mutex<Registry>>>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| {
-        axum_channels::handle_connect(socket, ConnFormat::Phoenix, registry.clone())
+        axum_channels::handle_connect(socket, ConnFormat::Phoenix, registry)
     })
 }
 
-#[derive(Clone, Debug)]
+struct PlayerIndex(usize);
+
+#[derive(Debug)]
 struct GameChannel {
     pub(crate) game: Game,
+    pub(crate) socket_state: HashMap<Token, http::Extensions>,
+}
+
+// FIXME: perhaps `Clone` isn't the right trait constraint for channel templates;
+// consider 'default' instead.
+impl Clone for GameChannel {
+    fn clone(&self) -> Self {
+        GameChannel::new()
+    }
 }
 
 impl GameChannel {
     pub fn new() -> Self {
-        let game = Game::testing();
+        let game = Game::default();
 
-        GameChannel { game }
+        GameChannel {
+            game,
+            socket_state: HashMap::new(),
+        }
     }
 }
 
@@ -120,7 +139,7 @@ impl ChannelBehavior for GameChannel {
                         join_ref: None,
                         msg_ref: message.msg_ref.clone(),
                         event: "player-state".into(),
-                        payload: json!(null),
+                        payload: serde_json::Value::Null,
                     })
                 }
 
@@ -152,9 +171,16 @@ impl ChannelBehavior for GameChannel {
     fn handle_out(&mut self, message: &DecoratedMessage) -> Option<Message> {
         match &message.inner.kind {
             MessageKind::BroadcastIntercept => {
+                let index = self
+                    .socket_state
+                    .get(&message.token)
+                    .unwrap()
+                    .get::<PlayerIndex>()
+                    .unwrap();
+
                 match message.inner.event.as_str() {
                     "player-state" => {
-                        let payload = self.game.player_state(0); // FIXME: use real conn state index
+                        let payload = self.game.player_state(index.0);
                         let reply = Message {
                             kind: MessageKind::Push,
                             channel_sender: None,
@@ -174,7 +200,10 @@ impl ChannelBehavior for GameChannel {
         }
     }
 
-    fn handle_join(&mut self, message: &DecoratedMessage) -> Result<(), channel::Error> {
+    fn handle_join(
+        &mut self,
+        message: &DecoratedMessage,
+    ) -> Result<Option<Message>, channel::Error> {
         debug!("{:?}", message);
         let player = Player(
             message
@@ -193,21 +222,64 @@ impl ChannelBehavior for GameChannel {
                 reason: format!("{:?}", e),
             })?;
 
-        if let Some(socket) = message.ws_reply_to.as_ref() {
-            let state = MessageReply::Event {
-                event: "player-state".to_string(),
-                payload: json!({
-                    "game": self.game,
-                    "rack": self.game.rack(player_index).map_err(|e| channel::Error::Other(e.to_string()))?,
-                    "remaining": self.game.remaining_tiles(player_index)
-                }),
-                channel_id: message.channel_id().clone(),
-            };
+        let state = self.socket_state.entry(message.token).or_default();
+        state.insert(PlayerIndex(player_index));
 
-            let _ = socket.send(state);
+        // if let Some(socket) = message.ws_reply_to.as_ref() {
+        //     // FIXME: this should broadcast
+        //     let state = MessageReply::Event {
+        //         event: "player-state".to_string(),
+        //         payload: self.game.player_state(player_index),
+        //         channel_id: message.channel_id().clone(),
+        //     };
+
+        //     let _ = socket.send(state);
+        // };
+
+        Ok(Some(Message {
+            kind: MessageKind::BroadcastIntercept,
+            channel_id: message.channel_id().clone(),
+            channel_sender: None,
+            join_ref: None,
+            msg_ref: message.msg_ref.clone(),
+            event: "player-state".into(),
+            payload: serde_json::Value::Null,
+        }))
+    }
+
+    fn handle_leave(
+        &mut self,
+        message: &DecoratedMessage,
+    ) -> axum_channels::channel::Result<Option<Message>> {
+        self.socket_state.remove(&message.token);
+        Ok(None)
+    }
+
+    fn handle_presence(
+        &mut self,
+        channel_id: &ChannelId,
+        presence: &Presence,
+    ) -> axum_channels::channel::Result<Option<Message>> {
+        // let mut map = HashMap::new();
+        let mut online = HashSet::new();
+
+        dbg!(presence);
+
+        for user in presence.data.values() {
+            online.insert(user.get("player").unwrap().as_str().unwrap());
+        }
+
+        let message = Message {
+            kind: MessageKind::Broadcast,
+            channel_id: channel_id.clone(),
+            msg_ref: None,
+            join_ref: None,
+            payload: serde_json::json!({ "online": online.iter().collect::<Vec<_>>() }),
+            event: "presence".into(),
+            channel_sender: None,
         };
 
-        Ok(())
+        Ok(Some(message))
     }
 }
 

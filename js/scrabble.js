@@ -2,6 +2,9 @@
 import { select } from 'd3-selection';
 import Rack from './rack';
 
+// FIXME: delete key works weirdly
+// FIXME: change all this to TS?
+
 const boni = {
   "quad_word": "4x word",
   "double_word": "2x word",
@@ -342,14 +345,17 @@ class Scrabble {
       let component = this;
 
       // FIXME
-      tile.html(function({ bonus }) {
-        return boni[bonus];
+      tile.html(function(d) {
+        if (d?.WordBonus || d?.LetterBonus) {
+          return boni[component.map_bonus(d)];
+        }
       }).classed("tile-proposed", false)
         .classed("tile-blank", false);
       this.deleteProposed(this.cursor);
       this.reverseCursor();
     } else {
       if (this.updateProposed(this.cursor, char)) {
+        // FIXME
         let isBlank = this.proposed[this.cursor][0] === ":"
         tile.html(this.proposed[this.cursor]).classed("tile-proposed", true)
           .classed("tile-blank", isBlank);
@@ -376,6 +382,7 @@ class Scrabble {
       return
     }
 
+    // FIXME:
     usingBlank = i === "BLANK";
 
     if (current) {
@@ -447,7 +454,8 @@ class Scrabble {
 
   moveCursorToNextEmpty(dx, dy) {
     if (this.moveCursor(dx, dy)) {
-      if (this.data[this.cursor].character !== undefined) {
+
+      if (this.data[this.cursor].Char !== undefined) {
         return this.moveCursorToNextEmpty(dx, dy)
       }
 
@@ -507,6 +515,7 @@ class Scrabble {
       } else if (bonus = this.map_bonus(d)) {
         return boni[bonus];
       } else {
+        // FIXME
         return d.character || this.proposed[i] || "";
       }
     });
@@ -538,7 +547,6 @@ class Scrabble {
   }
 
   drawScores() {
-    return; // FIXME:
     // FIXME: this is a mess
     let scoreCount = 0;
     for (let player in this.scores) {
@@ -578,7 +586,7 @@ class Scrabble {
       cells = cells.merge(cell_entry);
 
       cells.html(function(p) {
-        let localScores = scores[p][d] || [];
+        let localScores = scores[p][d]?.scores || [];
 
         let total = localScores.reduce((acc, score) => {
           return acc + score[1]
@@ -604,7 +612,7 @@ class Scrabble {
   totalScore(player) {
     let sum = 0;
     this.scores[player].forEach(turn => {
-      turn.forEach(word => {
+      turn.scores.forEach(word => {
         sum += word[1]
       })
     })
