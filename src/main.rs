@@ -7,7 +7,7 @@ use axum::{
     AddExtensionLayer, Router,
 };
 use axum_channels::{
-    channel::{self, ChannelBehavior, Presence},
+    channel::{self, Channel, Presence},
     message::{DecoratedMessage, Message, MessageKind, MessageReply},
     registry::Registry,
     types::{ChannelId, Token},
@@ -27,15 +27,11 @@ mod scrabble;
 
 #[tokio::main]
 async fn main() {
-    // tracing_subscriber::fmt()
-    //     .with_env_filter(EnvFilter::default())
-    //     .with_writer(std::io::stdout)
-    //     .initracing_subscriber::fmt::init();t();
     tracing_subscriber::fmt::init();
 
     let registry = Arc::new(Mutex::new(Registry::default()));
     let mut locked = registry.lock().unwrap();
-    locked.register_behavior("game".to_string(), Box::new(GameChannel::new()));
+    locked.register_template("game".to_string(), GameChannel::default());
 
     drop(locked);
 
@@ -91,18 +87,10 @@ async fn handler(
 
 struct PlayerIndex(usize);
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct GameChannel {
     pub(crate) game: Game,
     pub(crate) socket_state: HashMap<Token, http::Extensions>,
-}
-
-// FIXME: perhaps `Clone` isn't the right trait constraint for channel templates;
-// consider 'default' instead.
-impl Clone for GameChannel {
-    fn clone(&self) -> Self {
-        GameChannel::new()
-    }
 }
 
 impl GameChannel {
@@ -114,9 +102,7 @@ impl GameChannel {
             socket_state: HashMap::new(),
         }
     }
-}
 
-impl GameChannel {
     fn play(&mut self, payload: serde_json::Value) -> Result<(), scrabble::Error> {
         let turn = payload.try_into()?;
         self.game.play(turn)?;
@@ -125,7 +111,7 @@ impl GameChannel {
     }
 }
 
-impl ChannelBehavior for GameChannel {
+impl Channel for GameChannel {
     fn handle_message(&mut self, message: &DecoratedMessage) -> Option<Message> {
         match &message.inner.kind {
             MessageKind::Event => match message.inner.event.as_str() {
