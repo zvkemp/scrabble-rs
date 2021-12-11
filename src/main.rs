@@ -15,6 +15,7 @@ use axum_channels::{
 };
 use scrabble::{Game, Player};
 use serde_json::json;
+use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
@@ -24,16 +25,32 @@ use tracing::{debug, error};
 use crate::scrabble::Turn;
 
 mod scrabble;
+mod users;
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
 
+    // FIXME: internalize the Arc/Mutex
     let registry = Arc::new(Mutex::new(Registry::default()));
     let mut locked = registry.lock().unwrap();
     locked.register_template("game".to_string(), GameChannel::default());
 
     drop(locked);
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect("postgres://localhost/scrabble_rs")
+        .await
+        .unwrap();
+
+    let row: (i64,) = sqlx::query_as("SELECT $1")
+        .bind(150_i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(row.0, 150);
 
     let app = Router::new()
         .route("/simple/websocket", get(handler))
@@ -42,7 +59,8 @@ async fn main() {
         .route("/js/index.js", get(index_js))
         .route("/js/index.js.map", get(index_js_map))
         .route("/css/styles.css", get(css))
-        .layer(AddExtensionLayer::new(registry));
+        .layer(AddExtensionLayer::new(registry))
+        .layer(AddExtensionLayer::new(pool));
 
     axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
         .serve(app.into_make_service())
@@ -79,6 +97,7 @@ async fn show_game(Path((game_id, player)): Path<(String, String)>) -> Html<Stri
 async fn handler(
     ws: WebSocketUpgrade,
     Extension(registry): Extension<Arc<Mutex<Registry>>>,
+    Extension(_pg_pool): Extension<PgPool>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| {
         axum_channels::handle_connect(socket, ConnFormat::Phoenix, registry)
