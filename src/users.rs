@@ -12,6 +12,7 @@ pub enum Error {
     Unknown,
     Bcrypt(bcrypt::BcryptError),
     Sqlx(sqlx::Error),
+    NotFound,
 }
 
 impl std::fmt::Display for Error {
@@ -23,10 +24,10 @@ impl std::fmt::Display for Error {
 impl User {
     pub async fn find_by_username<'a, E>(
         username: &str,
-        db: &'a mut E, //Transaction<'_, sqlx::Postgres>,
+        db: E, //Transaction<'_, sqlx::Postgres>,
     ) -> Result<User, Error>
     where
-        &'a mut E: PgExecutor<'a>,
+        E: PgExecutor<'a>,
     {
         let user: User =
             sqlx::query_as("SELECT id, username, hashed_password from users WHERE username = $1;")
@@ -42,23 +43,21 @@ impl User {
     pub async fn find_by_username_and_password<'a, E>(
         username: &str,
         password: &str,
-        db: &'a mut E,
-    ) -> Result<Option<User>, Error>
+        db: E,
+    ) -> Result<User, Error>
     where
-        &'a mut E: PgExecutor<'a>,
+        E: PgExecutor<'a>,
     {
         let user = Self::find_by_username(username, db).await?;
 
-        if bcrypt::verify(password, &user.hashed_password).map_err(Error::Bcrypt)? {
-            Ok(Some(user))
-        } else {
-            Ok(None)
-        }
+        dbg!(bcrypt::verify(password, &user.hashed_password))
+            .map_err(Error::Bcrypt)
+            .and_then(|res| res.then(|| user).ok_or(Error::NotFound))
     }
 
-    pub async fn create<'a, E>(username: &str, password: &str, tx: &'a mut E) -> Result<i64, Error>
+    pub async fn create<'a, E>(username: &str, password: &str, tx: E) -> Result<i64, Error>
     where
-        &'a mut E: PgExecutor<'a>,
+        E: PgExecutor<'a>,
     {
         let hashed_password = bcrypt::hash(password, bcrypt_cost()).map_err(Error::Bcrypt)?;
 
@@ -77,7 +76,8 @@ impl User {
 
 #[cfg(not(test))]
 fn bcrypt_cost() -> u32 {
-    bcrypt::DEFAULT_COST
+    // bcrypt::DEFAULT_COST
+    4
 }
 
 #[cfg(test)]
@@ -129,17 +129,13 @@ mod tests {
             .await
             .unwrap();
 
-        let user = User::find_by_username_and_password("test_user_4", "wrong", &mut tx)
-            .await
-            .unwrap();
+        let user = User::find_by_username_and_password("test_user_4", "wrong", &mut tx).await;
 
-        assert!(user.is_none());
+        assert!(user.is_err());
 
         let user = User::find_by_username_and_password("test_user_4", "password", &mut tx)
             .await
             .unwrap();
-
-        assert!(user.is_some());
 
         tx.rollback().await.unwrap();
     }

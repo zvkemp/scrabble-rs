@@ -2,28 +2,43 @@ use std::sync::{Arc, Mutex};
 
 use askama::Template;
 use async_session::{CookieStore, SessionStore};
-use axum::extract::{Extension, Form, FromRequest, Path, RequestParts, WebSocketUpgrade};
+use axum::extract::{ws::WebSocketUpgrade, Extension, Form, FromRequest, Path, RequestParts};
 use axum::http::StatusCode;
-use axum::response::{Html, IntoResponse};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
-use axum::{async_trait, http};
+use axum::{async_trait, http, Json};
 use axum::{AddExtensionLayer, Router};
 use axum_channels::{registry::Registry, ConnFormat};
 use serde::Deserialize;
+use serde_json::json;
 use sqlx::PgPool;
+use tracing::debug;
 
+use crate::users;
 use crate::users::User;
 
 #[derive(Deserialize, Debug)]
-struct SignUp {
+struct Registration {
+    username: String,
+    password: String,
+    password_confirmation: String,
+    _csrf_token: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct Login {
     username: String,
     password: String,
 }
 
 pub fn app(registry: Arc<Mutex<Registry>>, pool: PgPool, store: CookieStore) -> Router {
     Router::new()
-        .route("/simple/websocket", get(ws_handler))
         .route("/", get(index))
+        .route("/sign_up", get(new_registration))
+        .route("/register", post(create_registration))
+        .route("/login", get(new_login))
+        .route("/login", post(create_login))
+        .route("/simple/websocket", get(ws_handler))
         .route("/play/:game_id/:player", get(show_game))
         .route("/js/index.js", get(assets::index_js))
         .route("/js/index.js.map", get(assets::index_js_map))
@@ -33,9 +48,102 @@ pub fn app(registry: Arc<Mutex<Registry>>, pool: PgPool, store: CookieStore) -> 
         .layer(AddExtensionLayer::new(store))
 }
 
-async fn sign_up(Form(signup): Form<SignUp>) -> impl IntoResponse {
-    dbg!(signup);
-    "Ok"
+async fn new_login() -> Html<String> {
+    let template = NewLoginTemplate {
+        csrf_token: "FIXME",
+    };
+    Html(template.render().unwrap())
+}
+
+async fn create_login(
+    Form(login): Form<Login>,
+    Extension(pool): Extension<PgPool>,
+) -> Result<Redirect, Error> {
+    let user = User::find_by_username_and_password(&login.username, &login.password, &pool)
+        .await
+        .map_err(Error::User)?;
+
+    dbg!(user);
+
+    Ok(Redirect::to("/".parse().unwrap()))
+}
+
+async fn create_registration(
+    Form(registration): Form<Registration>,
+    Extension(pool): Extension<PgPool>,
+) -> Result<Html<String>, Error> {
+    debug!("create_registration");
+    // FIXME: verify CSRF token
+
+    let id = registration.commit(pool).await?;
+    debug!("registered");
+
+    Ok(Html(format!("user_id={}", id)))
+}
+
+enum Error {
+    PasswordConfirmation,
+    Csrf,
+    User(users::Error),
+}
+
+impl IntoResponse for Error {
+    fn into_response(self) -> Response {
+        debug!("IntoResponse for Error");
+        let (status, error_message) = match self {
+            Error::PasswordConfirmation => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "Password does not match confirmation".to_string(),
+            ),
+            Error::Csrf => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "Invalid CSRF token".to_string(),
+            ),
+            Error::User(e) => (StatusCode::UNPROCESSABLE_ENTITY, format!("{:?}", e)),
+        };
+
+        let body = Json(json!({
+            "error": error_message,
+        }));
+        debug!("IntoResponse for Error finished");
+
+        (status, body).into_response()
+    }
+}
+
+impl Registration {
+    fn validate(&self) -> Result<(), Error> {
+        (self.password == self.password_confirmation)
+            .then(|| ())
+            .ok_or(Error::PasswordConfirmation)?;
+
+        self.verify_csrf()?;
+
+        Ok(())
+    }
+
+    pub async fn commit(&self, pool: PgPool) -> Result<i64, Error> {
+        debug!("validate");
+        self.validate()?;
+
+        debug!("starting create");
+        User::create(&self.username, &self.password, &pool)
+            .await
+            .map_err(Error::User)
+    }
+
+    fn verify_csrf(&self) -> Result<(), Error> {
+        // FIXME!
+
+        Ok(())
+    }
+}
+
+async fn new_registration() -> Html<String> {
+    let template = NewRegistrationTemplate {
+        csrf_token: "FIXME",
+    };
+    Html(template.render().unwrap())
 }
 
 async fn ws_handler(
@@ -69,6 +177,18 @@ struct GameTemplate<'a> {
 #[template(path = "index.html")]
 struct IndexTemplate<'a> {
     name: &'a str,
+}
+
+#[derive(Template)]
+#[template(path = "new_registration.html")]
+struct NewRegistrationTemplate<'a> {
+    csrf_token: &'a str,
+}
+
+#[derive(Template)]
+#[template(path = "login.html")]
+struct NewLoginTemplate<'a> {
+    csrf_token: &'a str,
 }
 
 async fn index() -> Html<String> {
