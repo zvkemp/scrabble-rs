@@ -1,31 +1,32 @@
-use askama::Template;
+use async_session::{CookieStore, SessionStore};
 use axum::{
-    extract::{Extension, Path, Query, WebSocketUpgrade},
-    http,
-    response::{Html, IntoResponse},
-    routing::get,
-    AddExtensionLayer, Router,
+    async_trait,
+    extract::{Extension, FromRequest, RequestParts},
+    http::{self, StatusCode},
 };
 use axum_channels::{
     channel::{self, Channel, Presence},
-    message::{DecoratedMessage, Message, MessageKind, MessageReply},
+    message::{DecoratedMessage, Message, MessageKind},
     registry::Registry,
     types::{ChannelId, Token},
-    ConnFormat,
 };
 use scrabble::{Game, Player};
 use serde_json::json;
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use sqlx::postgres::PgPoolOptions;
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
 };
 use tracing::{debug, error};
+use users::User;
 
-use crate::scrabble::Turn;
-
+// mod auth;
 mod scrabble;
 mod users;
+mod web;
+
+// TODO list:
+// - async-store for session cookies
 
 #[tokio::main]
 async fn main() {
@@ -52,56 +53,14 @@ async fn main() {
 
     assert_eq!(row.0, 150);
 
-    let app = Router::new()
-        .route("/simple/websocket", get(handler))
-        .route("/", get(index))
-        .route("/play/:game_id/:player", get(show_game))
-        .route("/js/index.js", get(index_js))
-        .route("/js/index.js.map", get(index_js_map))
-        .route("/css/styles.css", get(css))
-        .layer(AddExtensionLayer::new(registry))
-        .layer(AddExtensionLayer::new(pool));
+    let store = CookieStore::new();
+
+    let app = web::app(registry, pool, store);
 
     axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
         .serve(app.into_make_service())
         .await
         .unwrap();
-}
-
-async fn index() -> Html<String> {
-    let template = IndexTemplate { name: "world" };
-    Html(template.render().unwrap())
-}
-
-async fn index_js() -> &'static str {
-    include_str!("../assets/index.js")
-}
-
-async fn index_js_map() -> &'static str {
-    include_str!("../assets/index.js.map")
-}
-
-async fn css() -> &'static str {
-    include_str!("../assets/index.css")
-}
-
-async fn show_game(Path((game_id, player)): Path<(String, String)>) -> Html<String> {
-    let template = GameTemplate {
-        game_id: game_id.as_str(),
-        player: player.as_str(),
-        token: "fixme",
-    };
-    Html(template.render().unwrap())
-}
-
-async fn handler(
-    ws: WebSocketUpgrade,
-    Extension(registry): Extension<Arc<Mutex<Registry>>>,
-    Extension(_pg_pool): Extension<PgPool>,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| {
-        axum_channels::handle_connect(socket, ConnFormat::Phoenix, registry)
-    })
 }
 
 struct PlayerIndex(usize);
@@ -265,7 +224,6 @@ impl Channel for GameChannel {
         channel_id: &ChannelId,
         presence: &Presence,
     ) -> axum_channels::channel::Result<Option<Message>> {
-        // let mut map = HashMap::new();
         let mut online = HashSet::new();
 
         dbg!(presence);
@@ -286,20 +244,6 @@ impl Channel for GameChannel {
 
         Ok(Some(message))
     }
-}
-
-#[derive(Template)]
-#[template(path = "game.html")]
-struct GameTemplate<'a> {
-    game_id: &'a str,
-    player: &'a str,
-    token: &'a str,
-}
-
-#[derive(Template)]
-#[template(path = "index.html")]
-struct IndexTemplate<'a> {
-    name: &'a str,
 }
 
 // trait Partial: Template + Display {}

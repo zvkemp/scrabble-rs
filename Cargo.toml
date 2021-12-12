@@ -18,3 +18,5 @@ tracing-subscriber = { version = "*", features = ["env-filter"] }
 tracing = "*"
 bcrypt = "*"
 sqlx = { version = "*", features = ["migrate", "postgres", "runtime-tokio-rustls"] }
+hmac = "*"
+async-session = "^3.0.0"
