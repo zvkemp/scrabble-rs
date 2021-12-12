@@ -16,4 +16,5 @@ axum-channels = { path = "../axum-channels" }
 askama = "0.10"
 tracing-subscriber = { version = "*", features = ["env-filter"] }
 tracing = "*"
+bcrypt = "*"
 sqlx = { version = "*", features = ["migrate", "postgres", "runtime-tokio-rustls"] }

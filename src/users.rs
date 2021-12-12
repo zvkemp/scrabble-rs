@@ -1,39 +1,93 @@
-use sqlx::{FromRow, PgPool};
+use sqlx::{query, Executor, FromRow, PgExecutor, Transaction};
 
-#[derive(FromRow)]
+#[derive(FromRow, Debug)]
 pub struct User {
-    id: u32,
+    id: i64,
     username: String,
     hashed_password: String,
 }
 
+#[derive(Debug)]
 pub enum Error {
     Unknown,
+    Bcrypt(bcrypt::BcryptError),
+    Sqlx(sqlx::Error),
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 impl User {
-    pub async fn find_by_username(username: &str, pool: &PgPool) -> Result<User, sqlx::Error> {
+    pub async fn find_by_username<'a, E>(
+        username: &str,
+        db: &'a mut E, //Transaction<'_, sqlx::Postgres>,
+    ) -> Result<User, Error>
+    where
+        &'a mut E: PgExecutor<'a>,
+    {
         let user: User =
             sqlx::query_as("SELECT id, username, hashed_password from users WHERE username = $1;")
                 .bind(username)
-                .fetch_one(pool)
-                .await?;
+                .fetch_one(db)
+                .await
+                .map_err(Error::Sqlx)?;
 
         Ok(user)
     }
 
-    pub async fn create(username: &str, password: &str, pool: &PgPool) -> Result<(), sqlx::Error> {
-        sqlx::query("INSERT INTO users VALUES ($1, $2)")
-            .bind(username)
-            .bind(password)
-            .fetch(pool);
+    // FIXME: return error on incorrect password?
+    pub async fn find_by_username_and_password<'a, E>(
+        username: &str,
+        password: &str,
+        db: &'a mut E,
+    ) -> Result<Option<User>, Error>
+    where
+        &'a mut E: PgExecutor<'a>,
+    {
+        let user = Self::find_by_username(username, db).await?;
 
-        Ok(())
+        if bcrypt::verify(password, &user.hashed_password).map_err(Error::Bcrypt)? {
+            Ok(Some(user))
+        } else {
+            Ok(None)
+        }
     }
+
+    pub async fn create<'a, E>(username: &str, password: &str, tx: &'a mut E) -> Result<i64, Error>
+    where
+        &'a mut E: PgExecutor<'a>,
+    {
+        let hashed_password = bcrypt::hash(password, bcrypt_cost()).map_err(Error::Bcrypt)?;
+
+        let result = sqlx::query!(
+            "INSERT INTO users (username, hashed_password) VALUES ($1, $2) RETURNING id;",
+            username,
+            hashed_password
+        )
+        .fetch_one(tx)
+        .await
+        .map_err(Error::Sqlx)?;
+
+        Ok(result.id)
+    }
+}
+
+#[cfg(not(test))]
+fn bcrypt_cost() -> u32 {
+    bcrypt::DEFAULT_COST
+}
+
+#[cfg(test)]
+fn bcrypt_cost() -> u32 {
+    4
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use sqlx::{postgres::PgPoolOptions, PgPool};
 
     async fn test_pool() -> PgPool {
@@ -46,6 +100,47 @@ mod tests {
 
     #[tokio::test]
     async fn test_insert_and_find_user() {
-        t
+        let pool = test_pool().await;
+
+        let mut tx = pool.begin().await.unwrap();
+
+        User::create("test_user_3", "password", &mut tx)
+            .await
+            .unwrap();
+
+        let user = User::find_by_username("test_user_3", &mut tx)
+            .await
+            .unwrap();
+
+        assert_ne!(user.hashed_password, "password");
+
+        assert!(bcrypt::verify("password", &user.hashed_password).unwrap());
+
+        tx.rollback().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_find_by_password() {
+        let pool = test_pool().await;
+
+        let mut tx = pool.begin().await.unwrap();
+
+        User::create("test_user_4", "password", &mut tx)
+            .await
+            .unwrap();
+
+        let user = User::find_by_username_and_password("test_user_4", "wrong", &mut tx)
+            .await
+            .unwrap();
+
+        assert!(user.is_none());
+
+        let user = User::find_by_username_and_password("test_user_4", "password", &mut tx)
+            .await
+            .unwrap();
+
+        assert!(user.is_some());
+
+        tx.rollback().await.unwrap();
     }
 }
