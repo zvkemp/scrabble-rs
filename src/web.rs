@@ -1,7 +1,6 @@
 use std::sync::{Arc, Mutex};
 
 use askama::Template;
-use async_session::{CookieStore, SessionStore};
 use axum::extract::{ws::WebSocketUpgrade, Extension, Form, FromRequest, Path, RequestParts};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect, Response};
@@ -14,6 +13,7 @@ use serde_json::json;
 use sqlx::PgPool;
 use tracing::debug;
 
+use crate::session::{ExtractCookies, Session};
 use crate::users;
 use crate::users::User;
 
@@ -31,7 +31,7 @@ struct Login {
     password: String,
 }
 
-pub fn app(registry: Arc<Mutex<Registry>>, pool: PgPool, store: CookieStore) -> Router {
+pub fn app(registry: Arc<Mutex<Registry>>, pool: PgPool) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/sign_up", get(new_registration))
@@ -45,7 +45,7 @@ pub fn app(registry: Arc<Mutex<Registry>>, pool: PgPool, store: CookieStore) -> 
         .route("/css/styles.css", get(assets::css))
         .layer(AddExtensionLayer::new(registry))
         .layer(AddExtensionLayer::new(pool))
-        .layer(AddExtensionLayer::new(store))
+    // .layer(AddExtensionLayer::new(store))
 }
 
 async fn new_login() -> Html<String> {
@@ -55,9 +55,12 @@ async fn new_login() -> Html<String> {
     Html(template.render().unwrap())
 }
 
+// struct Session(async_store::Session);
+
 async fn create_login(
     Form(login): Form<Login>,
     Extension(pool): Extension<PgPool>,
+    // Extension(store): Extension<CookieStore>,
 ) -> Result<Redirect, Error> {
     let user = User::find_by_username_and_password(&login.username, &login.password, &pool)
         .await
@@ -156,7 +159,12 @@ async fn ws_handler(
     })
 }
 
-async fn show_game(Path((game_id, player)): Path<(String, String)>) -> Html<String> {
+async fn show_game(
+    Path((game_id, player)): Path<(String, String)>,
+    _: ExtractCookies,
+    session: Session,
+) -> Html<String> {
+    dbg!(session);
     let template = GameTemplate {
         game_id: game_id.as_str(),
         player: player.as_str(),
@@ -213,33 +221,4 @@ mod assets {
 enum UserFromSession {
     User(User),
     None,
-}
-
-#[async_trait]
-impl<B> FromRequest<B> for UserFromSession
-where
-    B: Send,
-{
-    type Rejection = (StatusCode, &'static str);
-
-    async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        let Extension(store) = Extension::<CookieStore>::from_request(req)
-            .await
-            .expect("CookieStore not found");
-
-        let headers = req.headers().unwrap();
-
-        match headers
-            .get(http::header::COOKIE)
-            .and_then(|value| value.to_str().ok())
-            .map(|value| value.to_string())
-        {
-            Some(cookie) => {
-                let session = store.load_session(cookie).await.unwrap();
-
-                todo!()
-            }
-            None => todo!(),
-        }
-    }
 }

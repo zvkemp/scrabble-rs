@@ -19,4 +19,4 @@ tracing = "*"
 bcrypt = "*"
 sqlx = { version = "*", features = ["migrate", "postgres", "runtime-tokio-rustls"] }
 hmac = "*"
-async-session = "^3.0.0"
+cookie = { version = "^0.15", features = ["secure"] }

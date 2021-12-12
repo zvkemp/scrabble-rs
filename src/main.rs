@@ -1,4 +1,4 @@
-use async_session::{CookieStore, SessionStore};
+// use async_session::{CookieStore, SessionStore};
 use axum::{
     async_trait,
     extract::{Extension, FromRequest, RequestParts},
@@ -22,6 +22,7 @@ use users::User;
 
 // mod auth;
 mod scrabble;
+mod session;
 mod users;
 mod web;
 
@@ -45,9 +46,9 @@ async fn main() {
         .await
         .unwrap();
 
-    let store = CookieStore::new();
+    // let store = CookieStore::new();
 
-    let app = web::app(registry, pool, store);
+    let app = web::app(registry, pool);
 
     axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
         .serve(app.into_make_service())
