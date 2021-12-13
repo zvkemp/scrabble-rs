@@ -22,6 +22,20 @@ impl std::fmt::Display for Error {
 }
 
 impl User {
+    pub async fn find<'a, E>(id: i64, db: E) -> Result<User, Error>
+    where
+        E: PgExecutor<'a>,
+    {
+        let user: User =
+            sqlx::query_as("SELECT id, username, hashed_password from users WHERE id = $1;")
+                .bind(id)
+                .fetch_one(db)
+                .await
+                .map_err(Error::Sqlx)?;
+
+        Ok(user)
+    }
+
     pub async fn find_by_username<'a, E>(
         username: &str,
         db: E, //Transaction<'_, sqlx::Postgres>,

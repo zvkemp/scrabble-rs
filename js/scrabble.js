@@ -33,7 +33,7 @@ class Scrabble {
     window.game = this
     // FIXME: remove token logic (now handled in user_socket.ex instead of the game channel)
     this.token = select("meta[name='id-token']").attr("content");
-    this.player = select("meta[name='player']").attr("content");
+    this.player = select("meta[name='player']").attr("content"); // FIXME: use real username
     this.game_id = select("meta[name='game-id']").attr("content");
 
     this.socket = socket

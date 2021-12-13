@@ -41,7 +41,7 @@ pub fn app(registry: Arc<Mutex<Registry>>, pool: PgPool) -> Router {
         .route("/login", get(new_login))
         .route("/login", post(create_login))
         .route("/simple/websocket", get(ws_handler))
-        .route("/play/:game_id/:player", get(show_game))
+        .route("/play/:game_id", get(show_game))
         .route("/js/index.js", get(assets::index_js))
         .route("/js/index.js.map", get(assets::index_js_map))
         .route("/css/styles.css", get(assets::css))
@@ -181,16 +181,20 @@ async fn ws_handler(
 }
 
 async fn show_game(
-    Path((game_id, player)): Path<(String, String)>,
+    Path(game_id): Path<String>,
     _: ExtractCookies,
     session: Session,
+    Extension(pg_pool): Extension<PgPool>,
 ) -> Result<Html<String>, Redirect> {
     if session.user_id.is_some() {
+        let user = User::find(session.user_id.unwrap(), &pg_pool)
+            .await
+            .unwrap();
         let token = session.token();
         let template = GameTemplate {
             game_id: game_id.as_str(),
-            player: player.as_str(),
             token: token.as_str(),
+            player: user.username.as_str(),
         };
 
         Ok(Html(template.render().unwrap()))
@@ -203,8 +207,8 @@ async fn show_game(
 #[template(path = "game.html")]
 struct GameTemplate<'a> {
     game_id: &'a str,
-    player: &'a str,
     token: &'a str,
+    player: &'a str,
 }
 
 #[derive(Template)]

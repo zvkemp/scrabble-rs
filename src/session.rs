@@ -32,7 +32,7 @@ impl Session {
         jar.get(SESSION_COOKIE_NAME).unwrap().value().to_string()
     }
 
-    pub fn read_token(token: &'static str) -> Option<Session> {
+    pub fn read_token(token: String) -> Option<Session> {
         let mut jar = CookieJar::new();
         jar.add_original(Cookie::new(SESSION_COOKIE_NAME, token));
         let value = jar

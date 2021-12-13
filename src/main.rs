@@ -5,20 +5,22 @@ use axum::{
     http::{self, StatusCode},
 };
 use axum_channels::{
-    channel::{self, Channel, Presence},
+    channel::{self, Channel, NewChannel, Presence},
     message::{DecoratedMessage, Message, MessageKind},
     registry::Registry,
     types::{ChannelId, Token},
 };
 use scrabble::{Game, Player};
 use serde_json::json;
-use sqlx::postgres::PgPoolOptions;
+use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
 };
 use tracing::{debug, error};
 use users::User;
+
+use crate::session::Session;
 
 // mod auth;
 mod scrabble;
@@ -33,18 +35,19 @@ mod web;
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    // FIXME: internalize the Arc/Mutex
-    let registry = Arc::new(Mutex::new(Registry::default()));
-    let mut locked = registry.lock().unwrap();
-    locked.register_template("game".to_string(), GameChannel::default());
-
-    drop(locked);
-
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect("postgres://localhost/scrabble_rs")
         .await
         .unwrap();
+
+    // FIXME: internalize the Arc/Mutex
+    let registry = Arc::new(Mutex::new(Registry::default()));
+    let mut locked = registry.lock().unwrap();
+    let game_channel = GameChannel::new(pool.clone());
+    locked.register_template("game".to_string(), game_channel);
+
+    drop(locked);
 
     // let store = CookieStore::new();
 
@@ -58,19 +61,21 @@ async fn main() {
 
 struct PlayerIndex(usize);
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct GameChannel {
     pub(crate) game: Game,
     pub(crate) socket_state: HashMap<Token, http::Extensions>,
+    pub(crate) pg_pool: PgPool,
 }
 
 impl GameChannel {
-    pub fn new() -> Self {
+    pub fn new(pg_pool: PgPool) -> Self {
         let game = Game::default();
 
         GameChannel {
             game,
             socket_state: HashMap::new(),
+            pg_pool,
         }
     }
 
@@ -82,6 +87,7 @@ impl GameChannel {
     }
 }
 
+#[async_trait]
 impl Channel for GameChannel {
     fn handle_message(&mut self, message: &DecoratedMessage) -> Option<Message> {
         match &message.inner.kind {
@@ -157,20 +163,26 @@ impl Channel for GameChannel {
         }
     }
 
-    fn handle_join(
+    async fn handle_join(
         &mut self,
         message: &DecoratedMessage,
     ) -> Result<Option<Message>, channel::Error> {
         debug!("{:?}", message);
-        let player = Player(
-            message
-                .inner
-                .payload
-                .get("player")
-                .and_then(|p| p.as_str())
-                .ok_or_else(|| channel::Error::Other("player not found".into()))?
-                .into(),
-        );
+        let token = message
+            .inner
+            .payload
+            .get("token")
+            .and_then(|t| t.as_str())
+            .ok_or_else(|| channel::Error::Other("token not found".into()))
+            .and_then(|token| Ok(Session::read_token(token.to_string())))?;
+
+        let session = token.ok_or_else(|| channel::Error::Other("token was not valid".into()))?;
+
+        let user = User::find(session.user_id.unwrap(), &self.pg_pool)
+            .await // damn it
+            .unwrap(); // FIXME: unwrap
+
+        let player = Player(dbg!(user).username);
 
         let player_index = self
             .game
@@ -180,18 +192,8 @@ impl Channel for GameChannel {
             })?;
 
         let state = self.socket_state.entry(message.token).or_default();
+
         state.insert(PlayerIndex(player_index));
-
-        // if let Some(socket) = message.ws_reply_to.as_ref() {
-        //     // FIXME: this should broadcast
-        //     let state = MessageReply::Event {
-        //         event: "player-state".to_string(),
-        //         payload: self.game.player_state(player_index),
-        //         channel_id: message.channel_id().clone(),
-        //     };
-
-        //     let _ = socket.send(state);
-        // };
 
         Ok(Some(Message {
             kind: MessageKind::BroadcastIntercept,
@@ -236,6 +238,12 @@ impl Channel for GameChannel {
         };
 
         Ok(Some(message))
+    }
+}
+
+impl NewChannel for GameChannel {
+    fn new_channel(&self) -> Box<dyn Channel> {
+        Box::new(GameChannel::new(self.pg_pool.clone()))
     }
 }
 
