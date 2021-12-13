@@ -2,18 +2,20 @@ use std::sync::{Arc, Mutex};
 
 use askama::Template;
 use axum::extract::{ws::WebSocketUpgrade, Extension, Form, FromRequest, Path, RequestParts};
-use axum::http::StatusCode;
+use axum::http::header::{HeaderName, SET_COOKIE};
+use axum::http::{response, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{async_trait, http, Json};
 use axum::{AddExtensionLayer, Router};
 use axum_channels::{registry::Registry, ConnFormat};
+use cookie::{Cookie, CookieJar, Key};
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::PgPool;
 use tracing::debug;
 
-use crate::session::{ExtractCookies, Session};
+use crate::session::{self, ExtractCookies, Session};
 use crate::users;
 use crate::users::User;
 
@@ -59,16 +61,35 @@ async fn new_login() -> Html<String> {
 
 async fn create_login(
     Form(login): Form<Login>,
+    _: ExtractCookies,
     Extension(pool): Extension<PgPool>,
-    // Extension(store): Extension<CookieStore>,
-) -> Result<Redirect, Error> {
+    Extension(mut jar): Extension<CookieJar>,
+) -> Result<(HeaderMap, Redirect), Error> {
     let user = User::find_by_username_and_password(&login.username, &login.password, &pool)
         .await
         .map_err(Error::User)?;
 
-    dbg!(user);
+    let session = Session::from(user);
+    let cookie = Cookie::new(
+        session::SESSION_COOKIE_NAME,
+        serde_json::to_string(&session).unwrap(),
+    );
+    let key = Key::from(session::SECRET.as_bytes());
 
-    Ok(Redirect::to("/".parse().unwrap()))
+    jar.private_mut(&key).add(cookie);
+
+    // fixme set max age/expiration
+    let set_cookie = jar
+        .delta()
+        .map(|cookie| format!("{}; Max-Age: 31536000", cookie.stripped()))
+        .collect::<Vec<String>>()
+        .join("; ");
+
+    // let headers = axum::response::Headers(vec![(http::header::SET_COOKIE, set_cookie.into())]);
+    let mut headers = HeaderMap::new();
+    headers.insert(SET_COOKIE, HeaderValue::from_str(&set_cookie).unwrap());
+
+    Ok((headers, Redirect::to("/".parse().unwrap())))
 }
 
 async fn create_registration(
@@ -163,14 +184,19 @@ async fn show_game(
     Path((game_id, player)): Path<(String, String)>,
     _: ExtractCookies,
     session: Session,
-) -> Html<String> {
-    dbg!(session);
-    let template = GameTemplate {
-        game_id: game_id.as_str(),
-        player: player.as_str(),
-        token: "fixme",
-    };
-    Html(template.render().unwrap())
+) -> Result<Html<String>, Redirect> {
+    if session.user_id.is_some() {
+        let token = session.token();
+        let template = GameTemplate {
+            game_id: game_id.as_str(),
+            player: player.as_str(),
+            token: token.as_str(),
+        };
+
+        Ok(Html(template.render().unwrap()))
+    } else {
+        Err(Redirect::to("/login".parse().unwrap()))
+    }
 }
 
 #[derive(Template)]

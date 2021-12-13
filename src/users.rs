@@ -2,8 +2,8 @@ use sqlx::{query, Executor, FromRow, PgExecutor, Transaction};
 
 #[derive(FromRow, Debug)]
 pub struct User {
-    id: i64,
-    username: String,
+    pub id: i64,
+    pub username: String,
     hashed_password: String,
 }
 

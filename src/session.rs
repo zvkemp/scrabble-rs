@@ -1,13 +1,52 @@
 use axum::extract::{FromRequest, RequestParts};
 use axum::http::StatusCode;
 use axum::{async_trait, http};
-use cookie::{CookieJar, Key, PrivateJar};
+use cookie::{Cookie, CookieJar, Key, PrivateJar};
 use serde::{Deserialize, Serialize};
 use tracing::error;
 
+use crate::users::User;
+
 #[derive(Serialize, Deserialize, Default, Debug)]
 pub struct Session {
-    user_id: Option<i64>,
+    pub user_id: Option<i64>,
+}
+
+impl From<User> for Session {
+    fn from(user: User) -> Self {
+        Self {
+            user_id: Some(user.id),
+        }
+    }
+}
+
+impl Session {
+    // essentially a key-less encrypted cookie value;
+    // there's probably another way to do this
+    pub fn token(&self) -> String {
+        let mut jar = CookieJar::new();
+        let mut private = jar.private_mut(&key());
+        let cookie = Cookie::new(SESSION_COOKIE_NAME, serde_json::to_string(self).unwrap());
+        private.add(cookie);
+
+        jar.get(SESSION_COOKIE_NAME).unwrap().value().to_string()
+    }
+
+    pub fn read_token(token: &'static str) -> Option<Session> {
+        let mut jar = CookieJar::new();
+        jar.add_original(Cookie::new(SESSION_COOKIE_NAME, token));
+        let value = jar
+            .private(&key())
+            .get(SESSION_COOKIE_NAME)?
+            .value()
+            .to_string();
+
+        serde_json::from_str(&value).ok()?
+    }
+}
+
+fn key() -> Key {
+    Key::from(SECRET.as_bytes())
 }
 
 pub struct ExtractCookies;
