@@ -1,11 +1,14 @@
+use axum_channels::types::ChannelId;
 use rand::thread_rng;
 use rand::{seq::SliceRandom, Rng};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sqlx::types::Json;
+use sqlx::{query, PgExecutor, PgPool};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
-use tracing::debug;
+use tracing::{debug, error, warn};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Game {
@@ -17,10 +20,47 @@ pub struct Game {
     scores: Vec<Vec<TurnScore>>,
     state: State,
     size: usize,
-    board_type: &'static str,
+    board_type: String,
+    pkid: Option<i64>,
+    name: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+pub mod persistence {
+    use super::{Error, Game};
+    use sqlx::types::Json;
+    use sqlx::{query, query_as, FromRow, PgExecutor};
+
+    #[derive(FromRow, Debug)]
+    pub struct SavedGame {
+        pub id: i64,
+        pub name: String,
+        pub data: Json<Game>,
+    }
+
+    pub async fn fetch<'a, E>(name: &str, db: E) -> Result<Game, sqlx::Error>
+    where
+        E: PgExecutor<'a>,
+    {
+        let res = query!(r#"SELECT id, data from games where games.name = $1;"#, name)
+            .fetch_one(db)
+            .await?;
+
+        if res.data.is_some() {
+            let mut game: Game = serde_json::from_value(res.data.unwrap()).unwrap();
+            let id = res.id;
+
+            if game.pkid.is_none() {
+                game.pkid = Some(id);
+            }
+
+            Ok(game)
+        } else {
+            Err(sqlx::Error::RowNotFound)
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 enum State {
     Pre,
     Started,
@@ -56,14 +96,59 @@ pub struct Player(pub(crate) String);
 pub type Rack = Vec<Tile>;
 
 impl Game {
-    pub fn testing() -> Self {
-        let mut game = Self::default();
+    pub async fn persist<'a, E>(&mut self, db: E) -> Result<i64, Error>
+    where
+        E: PgExecutor<'a>,
+    {
+        if self.pkid.is_none() {
+            match self.create(db).await {
+                Ok(id) => {
+                    self.pkid = Some(id);
+                    Ok(id)
+                }
 
-        game.board.0[1] = Square::Tile(Tile::Char('H'));
-        game.board.0[2] = Square::Tile(Tile::Blank(Some('I')));
-
-        game
+                Err(e) => Err(e),
+            }
+        } else {
+            self.update(db).await
+        }
     }
+
+    async fn create<'a, E>(&mut self, db: E) -> Result<i64, Error>
+    where
+        E: PgExecutor<'a>,
+    {
+        let result = query!(
+            "INSERT INTO games (name, data) VALUES ($1, $2) returning id;",
+            self.name,
+            serde_json::json!(self)
+        )
+        .fetch_one(db)
+        .await
+        .map_err(Error::Sqlx)?;
+
+        Ok(result.id)
+    }
+
+    async fn update<'a, E>(&self, db: E) -> Result<i64, Error>
+    where
+        E: PgExecutor<'a>,
+    {
+        warn!("Updating {:?}", self.pkid);
+        let result = query!(
+            "UPDATE games set data = $1 WHERE id = $2 returning id;",
+            serde_json::json!(self),
+            self.pkid.as_ref().unwrap()
+        )
+        .fetch_all(db)
+        .await
+        .map_err(Error::Sqlx)?;
+
+        Ok(self.pkid.unwrap())
+    }
+}
+
+impl Game {
     pub fn check_complete() {
         todo!()
     }
@@ -122,6 +207,10 @@ impl Game {
             if player == *existing {
                 return Ok(index);
             }
+        }
+
+        if self.state != State::Pre {
+            return Err(Error::AlreadyStarted);
         }
 
         self.players.push(player);
@@ -382,18 +471,27 @@ pub enum Tile {
     Blank(Option<char>),
 }
 
-impl Default for Game {
-    fn default() -> Self {
-        Game {
-            board: Board::standard().expect("standard board could not be built"),
-            players: Default::default(),
-            player_index: 0,
-            bag: Bag::standard(),
-            racks: Default::default(),
-            scores: Default::default(),
-            state: Default::default(),
-            size: BOARD_SIZE,
-            board_type: BOARD_TYPE,
+impl Game {
+    pub async fn fetch(channel_id: ChannelId, db: &PgPool) -> Self {
+        warn!("fetching {:?}", channel_id);
+        match persistence::fetch(channel_id.value().unwrap(), db).await {
+            Ok(game) => game,
+            e => {
+                error!("{:?}", e);
+                Game {
+                    board: Board::standard().expect("standard board could not be built"),
+                    players: Default::default(),
+                    player_index: 0,
+                    bag: Bag::standard(),
+                    racks: Default::default(),
+                    scores: Default::default(),
+                    state: Default::default(),
+                    size: BOARD_SIZE,
+                    board_type: BOARD_TYPE.to_string(),
+                    pkid: None,
+                    name: channel_id.value().unwrap().to_string(),
+                }
+            }
         }
     }
 }
@@ -490,13 +588,14 @@ impl Bag {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum Error {
     BoardParse(String),
     NoTileToSpend(Tile),
     TurnIndexesNotUnique,
     TurnNotLinear,
     NotStarted,
+    AlreadyStarted,
     GameOver,
     BlankTileInTurn,
     CannotPass,
@@ -505,6 +604,7 @@ pub enum Error {
     TurnParse,
     SquareOccupied(usize),
     NotConnected,
+    Sqlx(sqlx::Error),
 }
 
 impl std::fmt::Display for Error {
@@ -1242,16 +1342,19 @@ mod test {
             tiles: vec![(140, l!('T')), (127, l!('A')), (128, l!('X'))],
         };
 
-        assert_eq!(game.play(turn_c_err_1).unwrap_err(), Error::TurnNotLinear);
+        assert!(matches!(
+            game.play(turn_c_err_1).unwrap_err(),
+            Error::TurnNotLinear
+        ));
 
         let turn_c_err_2 = Turn {
             tiles: vec![(140, l!('T')), (141, l!('A')), (142, l!('X'))],
         };
 
-        assert_eq!(
+        assert!(matches!(
             game.play(turn_c_err_2).unwrap_err(),
             Error::NoTileToSpend(l!('A'))
-        );
+        ));
 
         let turn_c_1 = Turn {
             tiles: vec![(141, l!('I')), (156, l!('L'))],

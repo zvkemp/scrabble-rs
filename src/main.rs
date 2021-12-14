@@ -1,9 +1,4 @@
-// use async_session::{CookieStore, SessionStore};
-use axum::{
-    async_trait,
-    extract::{Extension, FromRequest, RequestParts},
-    http::{self, StatusCode},
-};
+use axum::{async_trait, http};
 use axum_channels::{
     channel::{self, Channel, NewChannel, Presence},
     message::{DecoratedMessage, Message, MessageKind},
@@ -22,14 +17,16 @@ use users::User;
 
 use crate::session::Session;
 
-// mod auth;
 mod scrabble;
 mod session;
 mod users;
 mod web;
 
-// TODO list:
-// - async-store for session cookies
+// TODOs:
+// valid word list
+// blanks aren't playable yet
+// allow spectators
+// provide error messages
 
 #[tokio::main]
 async fn main() {
@@ -44,12 +41,10 @@ async fn main() {
     // FIXME: internalize the Arc/Mutex
     let registry = Arc::new(Mutex::new(Registry::default()));
     let mut locked = registry.lock().unwrap();
-    let game_channel = GameChannel::new(pool.clone());
+    let game_channel = GameChannel::new(pool.clone(), "_template_".parse().unwrap());
     locked.register_template("game".to_string(), game_channel);
 
     drop(locked);
-
-    // let store = CookieStore::new();
 
     let app = web::app(registry, pool);
 
@@ -63,37 +58,50 @@ struct PlayerIndex(usize);
 
 #[derive(Debug)]
 struct GameChannel {
-    pub(crate) game: Game,
+    pub(crate) game: Option<Game>,
     pub(crate) socket_state: HashMap<Token, http::Extensions>,
     pub(crate) pg_pool: PgPool,
 }
 
 impl GameChannel {
-    pub fn new(pg_pool: PgPool) -> Self {
-        let game = Game::default();
-
+    pub fn new(pg_pool: PgPool, channel_id: ChannelId) -> Self {
         GameChannel {
-            game,
+            game: None,
             socket_state: HashMap::new(),
             pg_pool,
         }
     }
 
-    fn play(&mut self, payload: serde_json::Value) -> Result<(), scrabble::Error> {
+    async fn play(&mut self, payload: serde_json::Value) -> Result<(), scrabble::Error> {
         let turn = payload.try_into()?;
-        self.game.play(turn)?;
+        let game = self.game.as_mut().unwrap();
+
+        game.play(turn)?;
+        self.save_state().await?;
 
         Ok(())
+    }
+
+    async fn save_state(&mut self) -> Result<(), scrabble::Error> {
+        match self.game.as_mut().unwrap().persist(&self.pg_pool).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                error!("error saving game state; e={:?}", e);
+
+                Err(e)
+            }
+        }
     }
 }
 
 #[async_trait]
 impl Channel for GameChannel {
-    fn handle_message(&mut self, message: &DecoratedMessage) -> Option<Message> {
+    async fn handle_message(&mut self, message: &DecoratedMessage) -> Option<Message> {
         match &message.inner.kind {
             MessageKind::Event => match message.inner.event.as_str() {
                 "start" => {
-                    let _ = self.game.start();
+                    let _ = self.game.as_mut().unwrap().start();
+                    let _ = self.save_state().await;
 
                     Some(Message {
                         kind: MessageKind::BroadcastIntercept,
@@ -108,7 +116,7 @@ impl Channel for GameChannel {
 
                 "play" => {
                     // FIXME: ensure play comes from current player
-                    match self.play(message.inner.payload.clone()) {
+                    match self.play(message.inner.payload.clone()).await {
                         Ok(_) => Some(Message {
                             kind: MessageKind::BroadcastIntercept,
                             channel_id: message.channel_id().clone(),
@@ -120,8 +128,19 @@ impl Channel for GameChannel {
                         }),
                         Err(e) => {
                             error!("{:?}", e);
+                            let msg = format!("{:?}", e);
 
-                            None
+                            Some(Message {
+                                kind: MessageKind::Push,
+                                channel_id: message.channel_id().clone(),
+                                msg_ref: message.msg_ref.clone(),
+                                join_ref: None,
+                                payload: serde_json::json!({
+                                    "message": msg,
+                                }),
+                                event: "error".into(),
+                                channel_sender: None,
+                            })
                         }
                     }
                 }
@@ -131,7 +150,7 @@ impl Channel for GameChannel {
         }
     }
 
-    fn handle_out(&mut self, message: &DecoratedMessage) -> Option<Message> {
+    async fn handle_out(&mut self, message: &DecoratedMessage) -> Option<Message> {
         match &message.inner.kind {
             MessageKind::BroadcastIntercept => {
                 let index = self
@@ -143,7 +162,7 @@ impl Channel for GameChannel {
 
                 match message.inner.event.as_str() {
                     "player-state" => {
-                        let payload = self.game.player_state(index.0);
+                        let payload = self.game.as_ref().unwrap().player_state(index.0);
                         let reply = Message {
                             kind: MessageKind::Push,
                             channel_sender: None,
@@ -167,6 +186,12 @@ impl Channel for GameChannel {
         &mut self,
         message: &DecoratedMessage,
     ) -> Result<Option<Message>, channel::Error> {
+        if self.game.is_none() {
+            let game = Game::fetch(message.channel_id().clone(), &self.pg_pool).await;
+            debug!("setting up game {:?}...", message.channel_id());
+            self.game = Some(game);
+        }
+
         debug!("{:?}", message);
         let token = message
             .inner
@@ -186,10 +211,15 @@ impl Channel for GameChannel {
 
         let player_index = self
             .game
+            .as_mut()
+            .unwrap()
             .add_player(player)
             .map_err(|e| channel::Error::Join {
+                // FIXME: allow spectators?
                 reason: format!("{:?}", e),
             })?;
+
+        let _ = self.save_state().await;
 
         let state = self.socket_state.entry(message.token).or_default();
 
@@ -206,7 +236,7 @@ impl Channel for GameChannel {
         }))
     }
 
-    fn handle_leave(
+    async fn handle_leave(
         &mut self,
         message: &DecoratedMessage,
     ) -> axum_channels::channel::Result<Option<Message>> {
@@ -214,14 +244,12 @@ impl Channel for GameChannel {
         Ok(None)
     }
 
-    fn handle_presence(
+    async fn handle_presence(
         &mut self,
         channel_id: &ChannelId,
         presence: &Presence,
     ) -> axum_channels::channel::Result<Option<Message>> {
         let mut online = HashSet::new();
-
-        dbg!(presence);
 
         for user in presence.data.values() {
             online.insert(user.get("player").unwrap().as_str().unwrap());
@@ -242,8 +270,8 @@ impl Channel for GameChannel {
 }
 
 impl NewChannel for GameChannel {
-    fn new_channel(&self) -> Box<dyn Channel> {
-        Box::new(GameChannel::new(self.pg_pool.clone()))
+    fn new_channel(&self, channel_id: ChannelId) -> Box<dyn Channel> {
+        Box::new(GameChannel::new(self.pg_pool.clone(), channel_id))
     }
 }
 

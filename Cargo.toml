@@ -17,6 +17,6 @@ askama = "0.10"
 tracing-subscriber = { version = "*", features = ["env-filter"] }
 tracing = "*"
 bcrypt = "*"
-sqlx = { version = "*", features = ["migrate", "postgres", "runtime-tokio-rustls"] }
+sqlx = { version = "*", features = ["migrate", "postgres", "runtime-tokio-rustls", "json"] }
 hmac = "*"
 cookie = { version = "^0.15", features = ["secure"] }
