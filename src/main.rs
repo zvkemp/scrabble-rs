@@ -37,9 +37,11 @@ async fn main() {
 
     dictionary::dictionary().await;
 
+    let database_url = std::env::var("DATABASE_URL").unwrap();
+
     let pool = PgPoolOptions::new()
         .max_connections(5)
-        .connect("postgres://localhost/scrabble_rs")
+        .connect(&database_url)
         .await
         .unwrap();
 
