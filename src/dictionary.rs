@@ -16,7 +16,6 @@ pub async fn dictionary() -> &'static HashSet<String> {
                 Ok(url) => {
                     let body = reqwest::get(url).await.unwrap().text().await.unwrap();
                     for line in body.lines() {
-                        dbg!(&line);
                         set.insert(line.to_uppercase());
                     }
                 }

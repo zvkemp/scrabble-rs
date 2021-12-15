@@ -10,6 +10,7 @@ use serde_json::json;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{
     collections::{HashMap, HashSet},
+    net::SocketAddr,
     sync::{Arc, Mutex},
 };
 use tracing::{debug, error};
@@ -52,7 +53,11 @@ async fn main() {
 
     let app = web::app(registry, pool);
 
-    axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
+    let port = std::env::var("PORT").unwrap_or("3000".to_string());
+    let socket_addr = SocketAddr::new("0.0.0.0".parse().unwrap(), port.parse().unwrap());
+
+    // FIXME use PORT
+    axum::Server::bind(&socket_addr)
         .serve(app.into_make_service())
         .await
         .unwrap();
