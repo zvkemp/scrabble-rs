@@ -28,6 +28,7 @@ mod web;
 // allow spectators
 // UI bugs (delete key erases played tiles)
 // scores rendered in reverse
+// read SECRET_KEY_BASE
 
 #[tokio::main]
 async fn main() {
