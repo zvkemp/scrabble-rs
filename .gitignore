@@ -1,3 +1,5 @@
 /target
 /assets
 /node_modules
+.env.local
+words

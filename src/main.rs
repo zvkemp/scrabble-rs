@@ -17,20 +17,23 @@ use users::User;
 
 use crate::session::Session;
 
+mod dictionary;
 mod scrabble;
 mod session;
 mod users;
 mod web;
 
 // TODOs:
-// valid word list
 // blanks aren't playable yet
 // allow spectators
-// provide error messages
+// UI bugs (delete key erases played tiles)
+// scores rendered in reverse
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
+
+    dictionary::dictionary().await;
 
     let pool = PgPoolOptions::new()
         .max_connections(5)
@@ -76,7 +79,7 @@ impl GameChannel {
         let turn = payload.try_into()?;
         let game = self.game.as_mut().unwrap();
 
-        game.play(turn)?;
+        game.play(turn).await?;
         self.save_state().await?;
 
         Ok(())

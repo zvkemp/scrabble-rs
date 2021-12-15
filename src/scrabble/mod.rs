@@ -286,7 +286,7 @@ impl Game {
         self.player_index = thread_rng().gen_range(0..self.players.len());
     }
 
-    pub fn play(&mut self, turn: Turn) -> Result<(), Error> {
+    pub async fn play(&mut self, turn: Turn) -> Result<(), Error> {
         match self.state {
             State::Pre => return Err(Error::NotStarted),
             State::Over => return Err(Error::GameOver),
@@ -298,7 +298,7 @@ impl Game {
         debug!("{:?}", self.racks);
         debug!("turn={:?}", turn);
         self.validate_turn(&turn)?;
-        self.score_turn(&turn)?;
+        self.score_turn(&turn).await?;
         self.spend_tiles(&turn)?;
         self.board.commit_turn(&turn)?;
         self.fill_rack_at(self.player_index);
@@ -405,11 +405,12 @@ impl Game {
     // 5 6 7 8 9
     //
 
-    fn score_turn(&mut self, turn: &Turn) -> Result<(), Error> {
+    async fn score_turn(&mut self, turn: &Turn) -> Result<(), Error> {
         let overlay = Overlay {
             board: &self.board,
             turn,
         };
+        overlay.validate_words().await?;
         let score = overlay.score()?;
         self.scores[self.player_index].push(score);
 
@@ -605,6 +606,7 @@ pub enum Error {
     SquareOccupied(usize),
     NotConnected,
     Sqlx(sqlx::Error),
+    IllegalWords(Vec<String>),
 }
 
 impl std::fmt::Display for Error {
@@ -842,6 +844,19 @@ impl Overlay<'_> {
         }
 
         Ok(TurnScore { scores })
+    }
+
+    async fn validate_words(&self) -> Result<(), Error> {
+        let illegal_words = crate::dictionary::illegal_words(
+            self.new_words().into_iter().map(String::from).collect(),
+        )
+        .await;
+
+        if illegal_words.is_empty() {
+            Ok(())
+        } else {
+            Err(Error::IllegalWords(illegal_words))
+        }
     }
 }
 
