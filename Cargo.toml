@@ -22,3 +22,4 @@ hmac = "*"
 cookie = { version = "^0.15", features = ["secure"] }
 reqwest = "*"
 dotenv = "*"
+lazy_static = "*"

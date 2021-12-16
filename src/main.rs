@@ -29,9 +29,6 @@ mod web;
 // allow spectators
 // UI bugs (delete key erases played tiles)
 // scores rendered in reverse
-// On Heroku:
-// - read SECRET_KEY_BASE
-// - javascript compiles but doesn't work during gameplay
 
 #[tokio::main]
 async fn main() {

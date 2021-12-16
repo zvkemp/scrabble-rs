@@ -3,6 +3,7 @@ use axum::http::StatusCode;
 use axum::{async_trait, http};
 use cookie::{Cookie, CookieJar, Key, PrivateJar};
 use serde::{Deserialize, Serialize};
+use tokio::sync::OnceCell;
 use tracing::error;
 
 use crate::users::User;
@@ -25,7 +26,7 @@ impl Session {
     // there's probably another way to do this
     pub fn token(&self) -> String {
         let mut jar = CookieJar::new();
-        let mut private = jar.private_mut(&key());
+        let mut private = jar.private_mut(key());
         let cookie = Cookie::new(SESSION_COOKIE_NAME, serde_json::to_string(self).unwrap());
         private.add(cookie);
 
@@ -36,7 +37,7 @@ impl Session {
         let mut jar = CookieJar::new();
         jar.add_original(Cookie::new(SESSION_COOKIE_NAME, token));
         let value = jar
-            .private(&key())
+            .private(key())
             .get(SESSION_COOKIE_NAME)?
             .value()
             .to_string();
@@ -45,15 +46,23 @@ impl Session {
     }
 }
 
-fn key() -> Key {
-    Key::from(SECRET.as_bytes())
+fn key() -> &'static Key {
+    &*KEY
 }
 
 pub struct ExtractCookies;
 
 pub static SESSION_COOKIE_NAME: &'static str = "_scrabble_rs_session";
-pub static SECRET: &'static str =
-    "FIXME-this-is-a-temporary-secret-and-needs-to-be-longer-until-64";
+
+lazy_static::lazy_static! {
+    pub static ref SECRET: String = std::env::var("SECRET_KEY_BASE").unwrap_or(
+                "FIXME-the-is-the-default-development-key-and-should-not-be-used!".to_string());
+    pub static ref KEY: Key = Key::from(secret_key_base());
+}
+
+fn secret_key_base() -> &'static [u8] {
+    SECRET.as_bytes()
+}
 
 // inserts cookie jar into extensions
 #[async_trait]
