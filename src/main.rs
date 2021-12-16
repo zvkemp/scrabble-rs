@@ -218,7 +218,7 @@ impl Channel for GameChannel {
             .await // damn it
             .unwrap(); // FIXME: unwrap
 
-        let player = Player(dbg!(user).username);
+        let player = Player(user.username);
 
         let player_index = self
             .game

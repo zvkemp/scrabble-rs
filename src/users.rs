@@ -64,7 +64,7 @@ impl User {
     {
         let user = Self::find_by_username(username, db).await?;
 
-        dbg!(bcrypt::verify(password, &user.hashed_password))
+        bcrypt::verify(password, &user.hashed_password)
             .map_err(Error::Bcrypt)
             .and_then(|res| res.then(|| user).ok_or(Error::NotFound))
     }

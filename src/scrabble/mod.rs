@@ -185,7 +185,7 @@ impl Game {
                 .or_insert(self.scores[index].as_slice());
         }
 
-        dbg!(map)
+        map
     }
 
     pub fn current_player(&self) -> Option<&str> {
