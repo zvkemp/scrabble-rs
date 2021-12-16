@@ -496,7 +496,6 @@ class Scrabble {
       .attr('id', (d, i) => `tile-${i}`);
 
     enterJoin.on('click', (d, i) => {
-      debugger;
       return this.clickSetCursor(i)
     })
 

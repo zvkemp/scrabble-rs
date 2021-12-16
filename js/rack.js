@@ -58,7 +58,7 @@ class Rack {
 
   searchUnusedLetter(char) {
     for (let i = 0; i < this.squares.length; i++) {
-      if (this.squares[i] && !this.squares[i].used && this.squares[i].Char == char) {
+      if (this.squares[i] && !this.squares[i].used && (this.squares[i].Char == char || (char == "BLANK" && this.squares[i].hasOwnProperty("Blank")))) {
         this.squares[i].used = true;
         this.draw();
         return char;
@@ -80,7 +80,7 @@ class Rack {
     if (draw === undefined) { draw = true }
 
     for (let i = (this.size - 1); i >= 0; i--) {
-      if (this.squares[i] && this.squares[i].used && this.squares[i].Char == char) {
+      if (this.squares[i] && this.squares[i].used && (this.squares[i].Char == char || (char == "BLANK" && this.squares[i].hasOwnProperty("Blank")))) {
         this.squares[i].used = false;
         if (draw) { this.draw() }
         return true;

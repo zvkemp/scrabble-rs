@@ -13,7 +13,7 @@ use std::{
     net::SocketAddr,
     sync::{Arc, Mutex},
 };
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 use users::User;
 
 use crate::session::Session;
@@ -45,7 +45,6 @@ async fn main() {
         .await
         .unwrap();
 
-    // FIXME: internalize the Arc/Mutex
     let registry = Arc::new(Mutex::new(Registry::default()));
     let mut locked = registry.lock().unwrap();
     let game_channel = GameChannel::new(pool.clone(), "_template_".parse().unwrap());
@@ -83,11 +82,25 @@ impl GameChannel {
         }
     }
 
-    async fn play(&mut self, payload: serde_json::Value) -> Result<(), scrabble::Error> {
+    async fn play(
+        &mut self,
+        event: &str,
+        payload: serde_json::Value,
+    ) -> Result<(), scrabble::Error> {
         let turn = payload.try_into()?;
         let game = self.game.as_mut().unwrap();
 
-        game.play(turn).await?;
+        // FIXME: validate player index here
+
+        match event {
+            "play" => game.play(turn).await?,
+            "swap" => game.swap(turn)?,
+            "pass" => game.pass()?,
+            _ => {
+                error!("unknown event {:?}", event);
+                return Err(scrabble::Error::Unknown);
+            }
+        }
         self.save_state().await?;
 
         Ok(())
@@ -125,9 +138,12 @@ impl Channel for GameChannel {
                     })
                 }
 
-                "play" => {
+                "play" | "swap" | "pass" => {
                     // FIXME: ensure play comes from current player
-                    match self.play(message.inner.payload.clone()).await {
+                    match self
+                        .play(message.inner.event.as_str(), message.inner.payload.clone())
+                        .await
+                    {
                         Ok(_) => Some(Message {
                             kind: MessageKind::BroadcastIntercept,
                             channel_id: message.channel_id().clone(),
@@ -155,7 +171,14 @@ impl Channel for GameChannel {
                         }
                     }
                 }
-                _ => None,
+
+                other => {
+                    warn!(
+                        "unhandled message [{}]; payload={:?}",
+                        other, message.inner.payload
+                    );
+                    None
+                }
             },
             _ => None,
         }

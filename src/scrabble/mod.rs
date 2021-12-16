@@ -22,6 +22,8 @@ pub struct Game {
     board_type: String,
     pkid: Option<i64>,
     name: String,
+    #[serde(default)]
+    pass_count: usize,
 }
 
 pub mod persistence {
@@ -145,6 +147,14 @@ impl Game {
 
         Ok(self.pkid.unwrap())
     }
+
+    fn repopulate_bag(&mut self, turn: &Turn) {
+        for (_, tile) in turn.tiles.iter() {
+            self.bag.push(*tile);
+        }
+
+        self.bag.shuffle();
+    }
 }
 
 impl Game {
@@ -171,10 +181,20 @@ impl Game {
                 "size": self.size,
                 "state": self.state,
                 "current_player": self.current_player(),
+                "swap_allowed": self.swap_allowed(),
+                "pass_allowed": self.pass_allowed(),
             },
             "rack": self.racks[player_index],
             "remaining": self.remaining_tiles(player_index)
         })
+    }
+
+    fn swap_allowed(&self) -> bool {
+        matches!(self.state, State::Started) && self.bag.len() >= 7
+    }
+
+    fn pass_allowed(&self) -> bool {
+        matches!(self.state, State::Started) && self.bag.len() < 7
     }
 
     fn serializable_scores(&self) -> HashMap<&str, &[TurnScore]> {
@@ -298,12 +318,13 @@ impl Game {
         self.board.commit_turn(&turn)?;
         self.fill_rack_at(self.player_index);
         self.next_player();
+        self.pass_count = 0;
         self.check_game_over();
         Ok(())
     }
 
     fn check_game_over(&mut self) {
-        if self.bag.0.is_empty() && self.racks.iter().any(|r| r.is_empty()) {
+        if self.bag.is_empty() && self.any_rack_empty() || self.check_consecutive_passes() {
             self.state = State::Over;
 
             for (index, rack) in self.racks.iter().enumerate() {
@@ -315,23 +336,38 @@ impl Game {
                 }
             }
         }
-
-        // FIXME: check consecutive passes
     }
 
-    #[allow(dead_code)]
-    pub fn swap(&mut self, _turn: Turn) -> Result<(), Error> {
-        todo!()
+    fn any_rack_empty(&self) -> bool {
+        self.racks.iter().any(|r| r.is_empty())
+    }
+
+    fn check_consecutive_passes(&self) -> bool {
+        self.pass_count >= (self.players.len() * 2)
+    }
+
+    pub fn swap(&mut self, turn: Turn) -> Result<(), Error> {
+        if !self.swap_allowed() {
+            return Err(Error::SwapNotAllowed);
+        }
+
+        self.validate_swap(&turn)?;
+        self.spend_tiles(&turn)?;
+        self.fill_rack_at(self.player_index);
+        self.repopulate_bag(&turn);
+
+        Ok(())
     }
 
     #[allow(dead_code)]
     pub fn pass(&mut self) -> Result<(), Error> {
-        if self.bag.0.len() > 6 {
+        if !self.pass_allowed() {
             return Err(Error::CannotPass);
         }
 
-        // fixme
-        todo!();
+        self.next_player();
+        self.pass_count += 1;
+        self.check_game_over();
 
         #[allow(unreachable_code)]
         Ok(())
@@ -350,6 +386,11 @@ impl Game {
 
         // This is called here on a clone of the rack to ensure the tiles exist before deleting them from the actual rack.
         // FIXME: any way to do this once? This clone currently happens again in the commit.
+        Self::spend_tiles_inner(turn, self.racks[self.player_index].clone())?;
+        Ok(())
+    }
+
+    fn validate_swap(&mut self, turn: &Turn) -> Result<(), Error> {
         Self::spend_tiles_inner(turn, self.racks[self.player_index].clone())?;
         Ok(())
     }
@@ -495,6 +536,7 @@ impl Game {
             board_type: BOARD_TYPE.to_string(),
             pkid: None,
             name: channel_id.value().unwrap().to_string(),
+            pass_count: 0,
         }
     }
 }
@@ -543,6 +585,16 @@ macro_rules! l {
     };
 }
 
+macro_rules! lb {
+    () => {
+        Tile::Blank(None)
+    };
+
+    ($c:expr) => {
+        Tile::Blank(Some($c))
+    };
+}
+
 impl Bag {
     pub fn pop(&mut self) -> Option<Tile> {
         self.0.pop()
@@ -579,17 +631,33 @@ impl Bag {
             (l!(), 2),
         ];
 
-        let mut bag = vec![];
+        let mut inner = vec![];
 
         for (letter, count) in counts {
             for _ in 0..count {
-                bag.push(letter);
+                inner.push(letter);
             }
         }
 
-        bag.shuffle(&mut thread_rng());
+        let mut bag = Bag(inner);
+        bag.shuffle();
+        bag
+    }
 
-        Bag(bag)
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn push(&mut self, tile: Tile) {
+        self.0.push(tile);
+    }
+
+    fn shuffle(&mut self) {
+        self.0.shuffle(&mut thread_rng());
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
@@ -614,6 +682,8 @@ pub enum Error {
     NotConnected,
     Sqlx(sqlx::Error),
     IllegalWords(Vec<String>),
+    Unknown,
+    SwapNotAllowed,
 }
 
 impl std::fmt::Display for Error {
@@ -1115,11 +1185,24 @@ impl FromStr for Tile {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.chars().count() != 1 {
-            Err(Error::TileParse)
-        } else {
-            let char = s.chars().next().unwrap();
-            Ok(l!(char))
+        match s.chars().count() {
+            2 => {
+                let mut chars = s.chars();
+                let c1 = chars.next().unwrap();
+                let c2 = chars.next().unwrap();
+
+                if c1 != ':' {
+                    return Err(Error::TileParse);
+                }
+
+                Ok(lb!(c2))
+            }
+
+            1 => {
+                let char = s.chars().next().unwrap();
+                Ok(l!(char))
+            }
+            _ => Err(Error::TileParse),
         }
     }
 }
