@@ -11,7 +11,6 @@ use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
-    sync::{Arc, Mutex},
 };
 use tracing::{debug, error, warn};
 use users::User;
@@ -45,12 +44,9 @@ async fn main() {
         .await
         .unwrap();
 
-    let registry = Arc::new(Mutex::new(Registry::default()));
-    let mut locked = registry.lock().unwrap();
+    let mut registry = Registry::default();
     let game_channel = GameChannel::new(pool.clone(), "_template_".parse().unwrap());
-    locked.register_template("game".to_string(), game_channel);
-
-    drop(locked);
+    registry.register_template("game".to_string(), game_channel);
 
     let app = web::app(registry, pool);
 

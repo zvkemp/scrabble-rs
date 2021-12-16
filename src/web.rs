@@ -1,5 +1,3 @@
-use std::sync::{Arc, Mutex};
-
 use askama::Template;
 use axum::extract::{ws::WebSocketUpgrade, Extension, Form, Path};
 use axum::http::header::SET_COOKIE;
@@ -33,7 +31,7 @@ struct Login {
     password: String,
 }
 
-pub fn app(registry: Arc<Mutex<Registry>>, pool: PgPool) -> Router {
+pub fn app(registry: Registry, pool: PgPool) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/sign_up", get(new_registration))
@@ -173,7 +171,7 @@ async fn new_registration() -> Html<String> {
 
 async fn ws_handler(
     ws: WebSocketUpgrade,
-    Extension(registry): Extension<Arc<Mutex<Registry>>>,
+    Extension(registry): Extension<Registry>,
     Extension(_pg_pool): Extension<PgPool>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| {
