@@ -24,9 +24,7 @@ mod users;
 mod web;
 
 // TODOs:
-// blanks aren't playable yet
 // allow spectators
-// UI bugs (delete key erases played tiles)
 // scores rendered in reverse
 
 #[tokio::main]

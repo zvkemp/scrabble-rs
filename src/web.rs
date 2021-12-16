@@ -43,6 +43,7 @@ pub fn app(registry: Registry, pool: PgPool) -> Router {
         .route("/js/index.js", get(assets::index_js))
         .route("/js/index.js.map", get(assets::index_js_map))
         .route("/css/styles.css", get(assets::css))
+        .route("/debug/registry", get(debug_registry))
         .layer(AddExtensionLayer::new(registry))
         .layer(AddExtensionLayer::new(pool))
     // .layer(AddExtensionLayer::new(store))
@@ -101,6 +102,14 @@ async fn create_registration(
     debug!("registered");
 
     Ok(Html(format!("user_id={}", id)))
+}
+
+async fn debug_registry(
+    _: ExtractCookies,
+    _session: Session,
+    Extension(registry): Extension<Registry>,
+) -> String {
+    format!("{:#?}", registry)
 }
 
 enum Error {
