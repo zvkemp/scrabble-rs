@@ -15,5 +15,8 @@
   },
   "scripts": {
     "build": "esbuild js/app.js --bundle --sourcemap --outfile=assets/index.js"
+  },
+  "engines": {
+    "node": "16.x"
   }
 }
