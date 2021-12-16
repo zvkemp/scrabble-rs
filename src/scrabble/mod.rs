@@ -3,7 +3,6 @@ use rand::thread_rng;
 use rand::{seq::SliceRandom, Rng};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::types::Json;
 use sqlx::{query, PgExecutor, PgPool};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -26,9 +25,9 @@ pub struct Game {
 }
 
 pub mod persistence {
-    use super::{Error, Game};
+    use super::Game;
     use sqlx::types::Json;
-    use sqlx::{query, query_as, FromRow, PgExecutor};
+    use sqlx::{query, FromRow, PgExecutor};
 
     #[derive(FromRow, Debug)]
     pub struct SavedGame {
@@ -135,7 +134,7 @@ impl Game {
         E: PgExecutor<'a>,
     {
         warn!("Updating {:?}", self.pkid);
-        let result = query!(
+        let _result = query!(
             "UPDATE games set data = $1 WHERE id = $2 returning id;",
             serde_json::json!(self),
             self.pkid.as_ref().unwrap()
@@ -149,10 +148,6 @@ impl Game {
 }
 
 impl Game {
-    pub fn check_complete() {
-        todo!()
-    }
-
     pub fn start(&mut self) -> Result<(), Error> {
         self.init_racks();
         self.init_player_index();
@@ -479,20 +474,24 @@ impl Game {
             Ok(game) => game,
             e => {
                 error!("{:?}", e);
-                Game {
-                    board: Board::standard().expect("standard board could not be built"),
-                    players: Default::default(),
-                    player_index: 0,
-                    bag: Bag::standard(),
-                    racks: Default::default(),
-                    scores: Default::default(),
-                    state: Default::default(),
-                    size: BOARD_SIZE,
-                    board_type: BOARD_TYPE.to_string(),
-                    pkid: None,
-                    name: channel_id.value().unwrap().to_string(),
-                }
+                Game::new(channel_id)
             }
+        }
+    }
+
+    pub fn new(channel_id: ChannelId) -> Self {
+        Game {
+            board: Board::standard().expect("standard board could not be built"),
+            players: Default::default(),
+            player_index: 0,
+            bag: Bag::standard(),
+            racks: Default::default(),
+            scores: Default::default(),
+            state: Default::default(),
+            size: BOARD_SIZE,
+            board_type: BOARD_TYPE.to_string(),
+            pkid: None,
+            name: channel_id.value().unwrap().to_string(),
         }
     }
 }
@@ -578,7 +577,7 @@ impl Bag {
         let mut bag = vec![];
 
         for (letter, count) in counts {
-            for _ in 1..count {
+            for _ in 0..count {
                 bag.push(letter);
             }
         }
@@ -1262,7 +1261,7 @@ mod test {
 
     #[test]
     fn test_game_init() {
-        let mut game = Game::default();
+        let mut game = test_game();
         game.add_player(Player::from("Frankie")).unwrap();
         game.add_player(Player::from("Ada")).unwrap();
         game.start().unwrap();
@@ -1294,9 +1293,14 @@ mod test {
         Bag(bag)
     }
 
-    #[test]
-    fn test_game_play() {
-        let mut game = Game::default();
+    fn test_game() -> Game {
+        let channel_id = "game:hello".parse().unwrap();
+        Game::new(channel_id)
+    }
+
+    #[tokio::test]
+    async fn test_game_play() {
+        let mut game = test_game();
         game.bag = test_bag();
         game.add_player(Player::from("Frankie")).unwrap();
         game.add_player(Player::from("Ada")).unwrap();
@@ -1313,7 +1317,7 @@ mod test {
         let turn_a = Turn {
             tiles: vec![(112, l!('M')), (113, l!('A')), (114, l!('R'))],
         };
-        game.play(turn_a).unwrap();
+        game.play(turn_a).await.unwrap();
         // println!("{:#?}", game);
 
         assert_eq!(
@@ -1336,7 +1340,7 @@ mod test {
             tiles: vec![(126, l!('T')), (127, l!('A')), (128, l!('X'))],
         };
 
-        game.play(turn_b).unwrap();
+        game.play(turn_b).await.unwrap();
         // println!("{:#?}", game);
 
         assert_eq!(game.racks[1], vec![l!('E'), l!('I'), l!('S'), l!('P')]);
@@ -1358,7 +1362,7 @@ mod test {
         };
 
         assert!(matches!(
-            game.play(turn_c_err_1).unwrap_err(),
+            game.play(turn_c_err_1).await.unwrap_err(),
             Error::TurnNotLinear
         ));
 
@@ -1367,7 +1371,7 @@ mod test {
         };
 
         assert!(matches!(
-            game.play(turn_c_err_2).unwrap_err(),
+            game.play(turn_c_err_2).await.unwrap_err(),
             Error::NoTileToSpend(l!('A'))
         ));
 
@@ -1375,7 +1379,7 @@ mod test {
             tiles: vec![(141, l!('I')), (156, l!('L'))],
         };
 
-        game.play(turn_c_1).unwrap();
+        game.play(turn_c_1).await.unwrap();
         // println!("{:#?}", game);
 
         assert_eq!(
@@ -1399,7 +1403,7 @@ mod test {
             ],
         };
 
-        game.play(turn_d).unwrap();
+        game.play(turn_d).await.unwrap();
         // println!("{:#?}", game);
 
         assert!(game.is_over());
@@ -1420,9 +1424,9 @@ mod test {
         )
     }
 
-    #[test]
-    fn test_game_play_with_blanks() {
-        let mut game = Game::default();
+    #[tokio::test]
+    async fn test_game_play_with_blanks() {
+        let mut game = test_game();
         let bag = Bag(vec![
             l!('Q'),
             l!('A'),
@@ -1467,7 +1471,7 @@ mod test {
             ],
         };
 
-        game.play(turn_a).unwrap();
+        game.play(turn_a).await.unwrap();
         // println!("{:#?}", game);
 
         assert_eq!(
@@ -1484,7 +1488,7 @@ mod test {
             tiles: vec![(127, l!('A')), (128, l!('X'))],
         };
 
-        game.play(turn_b).unwrap();
+        game.play(turn_b).await.unwrap();
         assert_eq!(
             game.scores[1],
             vec![TurnScore {
@@ -1495,5 +1499,19 @@ mod test {
                 ]
             }],
         );
+    }
+
+    #[test]
+    fn test_standard_bag() {
+        let bag = Bag::standard();
+
+        let mut counts = HashMap::new();
+
+        for tile in bag.0.into_iter() {
+            *counts.entry(tile).or_insert(0usize) += 1;
+        }
+
+        let sum: usize = counts.values().sum();
+        assert_eq!(sum, 100);
     }
 }

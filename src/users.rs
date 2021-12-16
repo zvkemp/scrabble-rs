@@ -90,8 +90,7 @@ impl User {
 
 #[cfg(not(test))]
 fn bcrypt_cost() -> u32 {
-    // bcrypt::DEFAULT_COST
-    4
+    bcrypt::DEFAULT_COST
 }
 
 #[cfg(test)]

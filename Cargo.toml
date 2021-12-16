@@ -21,3 +21,4 @@ sqlx = { version = "*", features = ["migrate", "postgres", "runtime-tokio-rustls
 hmac = "*"
 cookie = { version = "^0.15", features = ["secure"] }
 reqwest = "*"
+dotenv = "*"

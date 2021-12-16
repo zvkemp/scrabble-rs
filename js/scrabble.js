@@ -329,7 +329,7 @@ class Scrabble {
   }
 
   setProposed(char) {
-    if (this.data[this.cursor].character !== undefined) {
+    if (this.data[this.cursor]?.Tile?.Char !== undefined) {
       return this.reverseCursor();
     }
 
@@ -455,7 +455,7 @@ class Scrabble {
   moveCursorToNextEmpty(dx, dy) {
     if (this.moveCursor(dx, dy)) {
 
-      if (this.data[this.cursor].Char !== undefined) {
+      if (this.data[this.cursor]?.Tile?.Char !== undefined) {
         return this.moveCursorToNextEmpty(dx, dy)
       }
 
@@ -495,7 +495,9 @@ class Scrabble {
       .append('div')
       .attr('id', (d, i) => `tile-${i}`);
 
-    enterJoin.on('click', (d, i) => this.clickSetCursor(i))
+    enterJoin.on('click', (d, i) => {
+      return this.clickSetCursor(i)
+    })
 
     let currentSquares = squares.merge(enterJoin);
     currentSquares.attr('class', d => `board-square ${this.map_bonus(d) || ''} letter-${d.Tile?.Char || d.Tile?.Blank?.Char}`)
@@ -515,7 +517,7 @@ class Scrabble {
       } else if (bonus = this.map_bonus(d)) {
         return boni[bonus];
       } else {
-        // FIXME
+        // FIXME what is this
         return d.character || this.proposed[i] || "";
       }
     });
