@@ -1,9 +1,8 @@
 use axum::extract::{FromRequest, RequestParts};
 use axum::http::StatusCode;
 use axum::{async_trait, http};
-use cookie::{Cookie, CookieJar, Key, PrivateJar};
+use cookie::{Cookie, CookieJar, Key};
 use serde::{Deserialize, Serialize};
-use tokio::sync::OnceCell;
 use tracing::error;
 
 use crate::users::User;
@@ -52,10 +51,10 @@ fn key() -> &'static Key {
 
 pub struct ExtractCookies;
 
-pub static SESSION_COOKIE_NAME: &'static str = "_scrabble_rs_session";
+pub static SESSION_COOKIE_NAME: &str = "_scrabble_rs_session";
 
 lazy_static::lazy_static! {
-    pub static ref SECRET: String = std::env::var("SECRET_KEY_BASE").unwrap_or(
+    pub static ref SECRET: String = std::env::var("SECRET_KEY_BASE").unwrap_or_else(|_|
                 "FIXME-the-is-the-default-development-key-and-should-not-be-used!".to_string());
     pub static ref KEY: Key = Key::from(secret_key_base());
 }

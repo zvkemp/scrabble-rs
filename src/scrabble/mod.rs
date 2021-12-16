@@ -182,7 +182,7 @@ impl Game {
 
         for (index, player) in self.players.iter().enumerate() {
             map.entry(player.as_str())
-                .or_insert(self.scores[index].as_slice());
+                .or_insert_with(|| self.scores[index].as_slice());
         }
 
         map
@@ -319,10 +319,12 @@ impl Game {
         // FIXME: check consecutive passes
     }
 
-    pub fn swap(&mut self, turn: Turn) -> Result<(), Error> {
+    #[allow(dead_code)]
+    pub fn swap(&mut self, _turn: Turn) -> Result<(), Error> {
         todo!()
     }
 
+    #[allow(dead_code)]
     pub fn pass(&mut self) -> Result<(), Error> {
         if self.bag.0.len() > 6 {
             return Err(Error::CannotPass);
@@ -331,6 +333,7 @@ impl Game {
         // fixme
         todo!();
 
+        #[allow(unreachable_code)]
         Ok(())
     }
 
@@ -432,7 +435,7 @@ impl Game {
                 .iter()
                 .position(|rack_tile| match tile {
                     Tile::Char(..) => tile == rack_tile,
-                    Tile::Blank(Some(char)) => matches!(rack_tile, Tile::Blank(None)),
+                    Tile::Blank(Some(_)) => matches!(rack_tile, Tile::Blank(None)),
                     Tile::Blank(None) => false,
                 })
                 .ok_or_else(|| Error::NoTileToSpend(*tile))?;
@@ -519,11 +522,13 @@ impl Tile {
             _ => None,
         }
     }
+}
 
-    pub fn to_string(&self) -> String {
+impl std::fmt::Display for Tile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
-            Tile::Char(char) | Tile::Blank(Some(char)) => format!("{}", char),
-            Tile::Blank(None) => "BLANK".to_string(),
+            Tile::Char(char) | Tile::Blank(Some(char)) => write!(f, "{}", char),
+            Tile::Blank(None) => write!(f, "BLANK"),
         }
     }
 }
@@ -597,10 +602,13 @@ pub enum Error {
     NotStarted,
     AlreadyStarted,
     GameOver,
+    #[allow(dead_code)]
     BlankTileInTurn,
     CannotPass,
+    #[allow(dead_code)]
     IndexOutOfBounds,
     TileParse,
+    #[allow(dead_code)]
     TurnParse,
     SquareOccupied(usize),
     NotConnected,

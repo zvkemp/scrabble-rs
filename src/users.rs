@@ -1,4 +1,4 @@
-use sqlx::{query, Executor, FromRow, PgExecutor, Transaction};
+use sqlx::{FromRow, PgExecutor};
 
 #[derive(FromRow, Debug)]
 pub struct User {
@@ -9,7 +9,6 @@ pub struct User {
 
 #[derive(Debug)]
 pub enum Error {
-    Unknown,
     Bcrypt(bcrypt::BcryptError),
     Sqlx(sqlx::Error),
     NotFound,
@@ -146,7 +145,7 @@ mod tests {
 
         assert!(user.is_err());
 
-        let user = User::find_by_username_and_password("test_user_4", "password", &mut tx)
+        let _user = User::find_by_username_and_password("test_user_4", "password", &mut tx)
             .await
             .unwrap();
 

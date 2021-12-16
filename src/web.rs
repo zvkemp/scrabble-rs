@@ -1,12 +1,12 @@
 use std::sync::{Arc, Mutex};
 
 use askama::Template;
-use axum::extract::{ws::WebSocketUpgrade, Extension, Form, FromRequest, Path, RequestParts};
-use axum::http::header::{HeaderName, SET_COOKIE};
-use axum::http::{response, HeaderMap, HeaderValue, StatusCode};
+use axum::extract::{ws::WebSocketUpgrade, Extension, Form, Path};
+use axum::http::header::SET_COOKIE;
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
-use axum::{async_trait, http, Json};
+use axum::Json;
 use axum::{AddExtensionLayer, Router};
 use axum_channels::{registry::Registry, ConnFormat};
 use cookie::{Cookie, CookieJar, Key};
@@ -107,6 +107,7 @@ async fn create_registration(
 
 enum Error {
     PasswordConfirmation,
+    #[allow(dead_code)]
     Csrf,
     User(users::Error),
 }
@@ -246,9 +247,4 @@ mod assets {
     pub async fn css() -> &'static str {
         include_str!("../assets/index.css")
     }
-}
-
-enum UserFromSession {
-    User(User),
-    None,
 }

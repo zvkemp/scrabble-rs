@@ -32,7 +32,7 @@ mod web;
 
 #[tokio::main]
 async fn main() {
-    dotenv::dotenv();
+    let _ = dotenv::dotenv();
     tracing_subscriber::fmt::init();
 
     dictionary::dictionary().await;
@@ -55,7 +55,7 @@ async fn main() {
 
     let app = web::app(registry, pool);
 
-    let port = std::env::var("PORT").unwrap_or("3000".to_string());
+    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
     let socket_addr = SocketAddr::new("0.0.0.0".parse().unwrap(), port.parse().unwrap());
 
     // FIXME use PORT
@@ -210,7 +210,7 @@ impl Channel for GameChannel {
             .get("token")
             .and_then(|t| t.as_str())
             .ok_or_else(|| channel::Error::Other("token not found".into()))
-            .and_then(|token| Ok(Session::read_token(token.to_string())))?;
+            .map(|token| Session::read_token(token.to_string()))?;
 
         let session = token.ok_or_else(|| channel::Error::Other("token was not valid".into()))?;
 
