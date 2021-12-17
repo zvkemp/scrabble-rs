@@ -5,7 +5,7 @@ use axum_channels::{
     registry::Registry,
     types::{ChannelId, Token},
 };
-use scrabble::{Game, Player};
+use scrabble::{Game, Player, TurnScore};
 use serde_json::json;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{
@@ -46,7 +46,9 @@ async fn main() {
     let game_channel = GameChannel::new(pool.clone(), "_template_".parse().unwrap());
     registry.register_template("game".to_string(), game_channel);
 
-    let app = web::app(registry, pool);
+    let (registry_sender, _registry_handle) = registry.start();
+
+    let app = web::app(registry_sender, pool);
 
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
     let socket_addr = SocketAddr::new("0.0.0.0".parse().unwrap(), port.parse().unwrap());
@@ -74,6 +76,11 @@ impl GameChannel {
             socket_state: HashMap::new(),
             pg_pool,
         }
+    }
+
+    fn propose(&self, payload: serde_json::Value) -> Result<TurnScore, scrabble::Error> {
+        let turn = payload.try_into().map_err(|_| scrabble::Error::TurnParse)?;
+        Ok(self.game.as_ref().unwrap().propose(&turn))
     }
 
     async fn play(
@@ -112,6 +119,7 @@ impl GameChannel {
     }
 }
 
+// FIXME: need a nicer way to declare messages
 #[async_trait]
 impl Channel for GameChannel {
     async fn handle_message(&mut self, message: &DecoratedMessage) -> Option<Message> {
@@ -165,6 +173,28 @@ impl Channel for GameChannel {
                         }
                     }
                 }
+
+                "proposed" => match self.propose(message.inner.payload.clone()) {
+                    Ok(scores) => Some(Message {
+                        kind: MessageKind::Push,
+                        channel_id: message.channel_id().clone(),
+                        msg_ref: message.msg_ref.clone(),
+                        join_ref: None,
+                        payload: serde_json::json!({ "message": format!("{:?}", scores) }),
+                        event: "info".into(),
+                        channel_sender: None,
+                    }),
+
+                    Err(e) => Some(Message {
+                        kind: MessageKind::Push,
+                        channel_id: message.channel_id().clone(),
+                        msg_ref: message.msg_ref.clone(),
+                        join_ref: None,
+                        payload: serde_json::json!({ "message": format!("{:?}", e) }),
+                        event: "error".into(),
+                        channel_sender: None,
+                    }),
+                },
 
                 other => {
                     warn!(
@@ -264,14 +294,6 @@ impl Channel for GameChannel {
         }))
     }
 
-    async fn handle_leave(
-        &mut self,
-        message: &DecoratedMessage,
-    ) -> axum_channels::channel::Result<Option<Message>> {
-        self.socket_state.remove(&message.token);
-        Ok(None)
-    }
-
     async fn handle_presence(
         &mut self,
         channel_id: &ChannelId,
@@ -294,6 +316,14 @@ impl Channel for GameChannel {
         };
 
         Ok(Some(message))
+    }
+
+    async fn handle_leave(
+        &mut self,
+        message: &DecoratedMessage,
+    ) -> axum_channels::channel::Result<Option<Message>> {
+        self.socket_state.remove(&message.token);
+        Ok(None)
     }
 }
 

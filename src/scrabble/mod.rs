@@ -155,6 +155,16 @@ impl Game {
 
         self.bag.shuffle();
     }
+
+    pub fn propose(&self, turn: &Turn) -> TurnScore {
+        // validate things other than dictionary?
+        let overlay = Overlay {
+            board: &self.board,
+            turn,
+        };
+
+        overlay.score()
+    }
 }
 
 impl Game {
@@ -450,7 +460,7 @@ impl Game {
             turn,
         };
         overlay.validate_words().await?;
-        let score = overlay.score()?;
+        let score = overlay.score();
         self.scores[self.player_index].push(score);
 
         Ok(())
@@ -910,7 +920,7 @@ impl Overlay<'_> {
         }
     }
 
-    pub fn score(&self) -> Result<TurnScore, Error> {
+    pub fn score(&self) -> TurnScore {
         let mut scores = vec![];
         for word in self.new_words() {
             scores.push((String::from(&word), self.score_word(&word)))
@@ -920,7 +930,7 @@ impl Overlay<'_> {
             scores.push((String::from("*"), 50));
         }
 
-        Ok(TurnScore { scores })
+        TurnScore { scores }
     }
 
     async fn validate_words(&self) -> Result<(), Error> {
@@ -1318,8 +1328,7 @@ mod test {
             turn: &turn,
         };
 
-        let scores: HashSet<(String, isize)> =
-            overlay.score().unwrap().scores.into_iter().collect();
+        let scores: HashSet<(String, isize)> = overlay.score().scores.into_iter().collect();
 
         assert_eq!(
             scores,

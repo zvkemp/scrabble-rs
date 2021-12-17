@@ -190,7 +190,7 @@ dependencies = [
 [[package]]
 name = "axum-channels"
 version = "0.1.0"
-source = "git+https://github.com/zvkemp/axum-channels#812e0b2b8448702d5ca6a7333c0b6e1f56a4ef82"
+source = "git+https://github.com/zvkemp/axum-channels#44da02ff07a31429acf16ac6159be8383e0bd01d"
 dependencies = [
  "axum",
  "futures",
@@ -199,7 +199,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "tokio-stream",
  "tokio-util",
  "tracing",
 ]
@@ -2056,7 +2055,6 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
- "tokio-util",
 ]
 
 [[package]]

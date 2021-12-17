@@ -6,11 +6,13 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::Json;
 use axum::{AddExtensionLayer, Router};
-use axum_channels::{registry::Registry, ConnFormat};
+use axum_channels::registry::{RegistryMessage, RegistrySender};
+use axum_channels::ConnFormat;
 use cookie::{Cookie, CookieJar, Key};
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::PgPool;
+use tokio::sync::oneshot;
 use tracing::debug;
 
 use crate::session::{self, ExtractCookies, Session};
@@ -31,7 +33,7 @@ struct Login {
     password: String,
 }
 
-pub fn app(registry: Registry, pool: PgPool) -> Router {
+pub fn app(registry: RegistrySender, pool: PgPool) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/sign_up", get(new_registration))
@@ -107,9 +109,11 @@ async fn create_registration(
 async fn debug_registry(
     _: ExtractCookies,
     _session: Session,
-    Extension(registry): Extension<Registry>,
+    Extension(registry): Extension<RegistrySender>,
 ) -> String {
-    format!("{:#?}", registry)
+    let (tx, rx) = oneshot::channel();
+    registry.send(RegistryMessage::Debug(tx));
+    rx.await.unwrap()
 }
 
 enum Error {
@@ -178,9 +182,10 @@ async fn new_registration() -> Html<String> {
     Html(template.render().unwrap())
 }
 
+// FIXME: move boilerplate into lib
 async fn ws_handler(
     ws: WebSocketUpgrade,
-    Extension(registry): Extension<Registry>,
+    Extension(registry): Extension<RegistrySender>,
     Extension(_pg_pool): Extension<PgPool>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| {
