@@ -1,7 +1,7 @@
 use axum::{async_trait, http};
 use axum_channels::{
     channel::{self, Channel, NewChannel, Presence},
-    message::{DecoratedMessage, Message, MessageKind},
+    message::{self, DecoratedMessage, Message, MessageKind},
     registry::Registry,
     types::{ChannelId, Token},
 };
@@ -129,15 +129,11 @@ impl Channel for GameChannel {
                     let _ = self.game.as_mut().unwrap().start();
                     let _ = self.save_state().await;
 
-                    Some(Message {
-                        kind: MessageKind::BroadcastIntercept,
-                        channel_id: message.channel_id().clone(),
-                        channel_sender: None,
-                        join_ref: None,
-                        msg_ref: message.msg_ref.clone(),
-                        event: "player-state".into(),
-                        payload: serde_json::Value::Null,
-                    })
+                    Some(message::broadcast_intercept(
+                        message.channel_id().clone(),
+                        "player-state".into(),
+                        Default::default(),
+                    ))
                 }
 
                 "play" | "swap" | "pass" => {
@@ -146,54 +142,41 @@ impl Channel for GameChannel {
                         .play(message.inner.event.as_str(), message.inner.payload.clone())
                         .await
                     {
-                        Ok(_) => Some(Message {
-                            kind: MessageKind::BroadcastIntercept,
-                            channel_id: message.channel_id().clone(),
-                            channel_sender: None,
-                            join_ref: None,
-                            msg_ref: message.msg_ref.clone(),
-                            event: "player-state".into(),
-                            payload: json!(null),
-                        }),
+                        Ok(_) => Some(message::broadcast_intercept(
+                            message.channel_id().clone(),
+                            "player-state".into(),
+                            Default::default(),
+                        )),
                         Err(e) => {
                             error!("{:?}", e);
                             let msg = format!("{:?}", e);
 
-                            Some(Message {
-                                kind: MessageKind::Push,
-                                channel_id: message.channel_id().clone(),
-                                msg_ref: message.msg_ref.clone(),
-                                join_ref: None,
-                                payload: serde_json::json!({
+                            Some(message::push(
+                                message.channel_id().clone(),
+                                message.msg_ref.clone(),
+                                "error".into(),
+                                serde_json::json!({
                                     "message": msg,
                                 }),
-                                event: "error".into(),
-                                channel_sender: None,
-                            })
+                            ))
                         }
                     }
                 }
 
                 "proposed" => match self.propose(message.inner.payload.clone()) {
-                    Ok(scores) => Some(Message {
-                        kind: MessageKind::Push,
-                        channel_id: message.channel_id().clone(),
-                        msg_ref: message.msg_ref.clone(),
-                        join_ref: None,
-                        payload: serde_json::json!({ "message": format!("{:?}", scores) }),
-                        event: "info".into(),
-                        channel_sender: None,
-                    }),
+                    Ok(scores) => Some(message::push(
+                        message.channel_id().clone(),
+                        message.msg_ref.clone(),
+                        "info".into(),
+                        serde_json::json!({ "message": format!("{:?}", scores) }),
+                    )),
 
-                    Err(e) => Some(Message {
-                        kind: MessageKind::Push,
-                        channel_id: message.channel_id().clone(),
-                        msg_ref: message.msg_ref.clone(),
-                        join_ref: None,
-                        payload: serde_json::json!({ "message": format!("{:?}", e) }),
-                        event: "error".into(),
-                        channel_sender: None,
-                    }),
+                    Err(e) => Some(message::push(
+                        message.channel_id().clone(),
+                        message.msg_ref.clone(),
+                        "error".into(),
+                        serde_json::json!({ "message": format!("{:?}", e) }),
+                    )),
                 },
 
                 other => {
@@ -221,15 +204,12 @@ impl Channel for GameChannel {
                 match message.inner.event.as_str() {
                     "player-state" => {
                         let payload = self.game.as_ref().unwrap().player_state(index.0);
-                        let reply = Message {
-                            kind: MessageKind::Push,
-                            channel_sender: None,
-                            join_ref: None,
-                            msg_ref: message.msg_ref.clone(),
-                            channel_id: message.channel_id().clone(),
-                            event: message.inner.event.clone(),
+                        let reply = message::push(
+                            message.channel_id().clone(),
+                            message.msg_ref.clone(),
+                            message.inner.event.clone(),
                             payload,
-                        };
+                        );
 
                         Some(reply)
                     }
@@ -283,15 +263,11 @@ impl Channel for GameChannel {
 
         state.insert(PlayerIndex(player_index));
 
-        Ok(Some(Message {
-            kind: MessageKind::BroadcastIntercept,
-            channel_id: message.channel_id().clone(),
-            channel_sender: None,
-            join_ref: None,
-            msg_ref: message.msg_ref.clone(),
-            event: "player-state".into(),
-            payload: serde_json::Value::Null,
-        }))
+        Ok(Some(message::broadcast_intercept(
+            message.channel_id().clone(),
+            "player-state".into(),
+            Default::default(),
+        )))
     }
 
     async fn handle_presence(
@@ -305,15 +281,11 @@ impl Channel for GameChannel {
             online.insert(user.get("player").unwrap().as_str().unwrap());
         }
 
-        let message = Message {
-            kind: MessageKind::Broadcast,
-            channel_id: channel_id.clone(),
-            msg_ref: None,
-            join_ref: None,
-            payload: serde_json::json!({ "online": online.iter().collect::<Vec<_>>() }),
-            event: "presence".into(),
-            channel_sender: None,
-        };
+        let message = message::broadcast(
+            channel_id.clone(),
+            "presence".into(),
+            serde_json::json!({ "online": online.iter().collect::<Vec<_>>() }),
+        );
 
         Ok(Some(message))
     }
@@ -332,14 +304,3 @@ impl NewChannel for GameChannel {
         Box::new(GameChannel::new(self.pg_pool.clone(), channel_id))
     }
 }
-
-// trait Partial: Template + Display {}
-
-// impl Partial for GameTemplate<'_> {}
-// impl Partial for IndexTemplate<'_> {}
-
-// #[derive(Template)]
-// #[template(path = "layout.html")]
-// struct Layout<'a> {
-//     inner: Box<dyn Partial + 'a>,
-// }

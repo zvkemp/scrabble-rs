@@ -1,5 +1,19 @@
 {% extends "layout.html" %}
 
 {% block content %}
-Hello, {{ name }}!
+<p>
+  <a href="/login">login</a>
+</p>
+
+<p>
+  <a href="/register">sign up</a>
+</p>
+
+<pre>
+{{ info }}
+</pre>
+
+<pre>
+To play a game, navigate to /play/{your game name}. Or click <a href="/rand_game">here</a>
+</pre>
 {% endblock %}

@@ -9,6 +9,8 @@ use axum::{AddExtensionLayer, Router};
 use axum_channels::registry::{RegistryMessage, RegistrySender};
 use axum_channels::ConnFormat;
 use cookie::{Cookie, CookieJar, Key};
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::PgPool;
@@ -42,6 +44,7 @@ pub fn app(registry: RegistrySender, pool: PgPool) -> Router {
         .route("/login", post(create_login))
         .route("/simple/websocket", get(ws_handler))
         .route("/play/:game_id", get(show_game))
+        .route("/rand_game", get(rand_game))
         .route("/js/index.js", get(assets::index_js))
         .route("/js/index.js.map", get(assets::index_js_map))
         .route("/css/styles.css", get(assets::css))
@@ -57,8 +60,6 @@ async fn new_login() -> Html<String> {
     };
     Html(template.render().unwrap())
 }
-
-// struct Session(async_store::Session);
 
 async fn create_login(
     Form(login): Form<Login>,
@@ -227,7 +228,7 @@ struct GameTemplate<'a> {
 #[derive(Template)]
 #[template(path = "index.html")]
 struct IndexTemplate<'a> {
-    name: &'a str,
+    info: &'a str,
 }
 
 #[derive(Template)]
@@ -242,9 +243,28 @@ struct NewLoginTemplate<'a> {
     csrf_token: &'a str,
 }
 
-async fn index() -> Html<String> {
-    let template = IndexTemplate { name: "world" };
+async fn index(_: ExtractCookies, session: Option<Session>) -> Html<String> {
+    let info = format!("{:?}", session);
+    let template = IndexTemplate {
+        info: info.as_str(),
+    };
     Html(template.render().unwrap())
+}
+
+async fn rand_game(_: ExtractCookies, session: Session) -> Result<Redirect, Redirect> {
+    if session.user_id.is_some() {
+        let rand_string: String = thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(30)
+            .map(char::from)
+            .collect();
+
+        Ok(Redirect::to(
+            format!("/play/{}", rand_string).parse().unwrap(),
+        ))
+    } else {
+        Err(Redirect::to("/login".parse().unwrap()))
+    }
 }
 
 mod assets {
