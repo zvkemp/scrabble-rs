@@ -24,6 +24,8 @@ pub struct Game {
     name: String,
     #[serde(default)]
     pass_count: usize,
+    #[serde(default)]
+    turn_log: Vec<Turn>,
 }
 
 pub mod persistence {
@@ -193,10 +195,12 @@ impl Game {
                 "current_player": self.current_player(),
                 "swap_allowed": self.swap_allowed(),
                 "pass_allowed": self.pass_allowed(),
+                "last_turn_indices": self.last_turn_indices(),
             },
             "rack": self.racks[player_index],
             "remaining": self.remaining_tiles(player_index)
         })
+        // FIXME: include last turn indicies (keep a turn log)
     }
 
     fn swap_allowed(&self) -> bool {
@@ -326,6 +330,7 @@ impl Game {
         self.score_turn(&turn).await?;
         self.spend_tiles(&turn)?;
         self.board.commit_turn(&turn)?;
+        self.turn_log.push(turn);
         self.fill_rack_at(self.player_index);
         self.next_player();
         self.pass_count = 0;
@@ -365,6 +370,7 @@ impl Game {
         self.spend_tiles(&turn)?;
         self.fill_rack_at(self.player_index);
         self.repopulate_bag(&turn);
+        self.turn_log.push(Default::default());
 
         Ok(())
     }
@@ -377,6 +383,7 @@ impl Game {
 
         self.next_player();
         self.pass_count += 1;
+        self.turn_log.push(Default::default());
         self.check_game_over();
 
         #[allow(unreachable_code)]
@@ -495,6 +502,13 @@ impl Game {
         Ok(rack)
     }
     // FIXME: allow up to two incorrect submissions before turn ends
+
+    fn last_turn_indices(&self) -> Vec<usize> {
+        self.turn_log
+            .last()
+            .map(|turn| turn.indexes().map(|x| *x).collect())
+            .unwrap_or_default()
+    }
 }
 
 impl From<&str> for Player {
@@ -547,6 +561,7 @@ impl Game {
             pkid: None,
             name: channel_id.value().unwrap().to_string(),
             pass_count: 0,
+            turn_log: Default::default(),
         }
     }
 }
@@ -1097,7 +1112,7 @@ fn transpose_index(index: usize, direction: &Direction) -> usize {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Turn {
     tiles: Vec<(usize, Tile)>,
     // map of indexes to letters
