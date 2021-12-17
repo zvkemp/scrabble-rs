@@ -87,9 +87,14 @@ impl GameChannel {
         &mut self,
         event: &str,
         payload: serde_json::Value,
+        player_index: usize,
     ) -> Result<(), scrabble::Error> {
         let turn = payload.try_into()?;
         let game = self.game.as_mut().unwrap();
+
+        if game.player_index != player_index {
+            return Err(scrabble::Error::NotYourTurn);
+        }
 
         // FIXME: validate player index here
 
@@ -137,9 +142,20 @@ impl Channel for GameChannel {
                 }
 
                 "play" | "swap" | "pass" => {
-                    // FIXME: ensure play comes from current player
+                    let index = self
+                        .socket_state
+                        .get(&message.token)
+                        .unwrap()
+                        .get::<PlayerIndex>()
+                        .unwrap()
+                        .0;
+
                     match self
-                        .play(message.inner.event.as_str(), message.inner.payload.clone())
+                        .play(
+                            message.inner.event.as_str(),
+                            message.inner.payload.clone(),
+                            index,
+                        )
                         .await
                     {
                         Ok(_) => Some(message::broadcast_intercept(

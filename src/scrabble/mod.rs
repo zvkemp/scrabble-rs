@@ -13,7 +13,7 @@ use tracing::{debug, error, warn};
 pub struct Game {
     board: Board,
     players: Vec<Player>,
-    player_index: usize,
+    pub player_index: usize,
     bag: Bag,
     racks: Vec<Rack>,
     scores: Vec<Vec<TurnScore>>,
@@ -694,6 +694,7 @@ pub enum Error {
     IllegalWords(Vec<String>),
     Unknown,
     SwapNotAllowed,
+    NotYourTurn,
 }
 
 impl std::fmt::Display for Error {
