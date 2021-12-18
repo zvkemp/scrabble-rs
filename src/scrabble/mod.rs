@@ -28,6 +28,8 @@ pub struct Game {
     turn_log: Vec<Turn>,
 }
 
+pub struct PlayerIndex(pub usize);
+
 pub mod persistence {
     use super::Game;
     use sqlx::types::Json;
@@ -182,7 +184,7 @@ impl Game {
     }
 
     // This is perhaps not ideal, but is easier than defining a custom serializer
-    pub fn player_state(&self, player_index: usize) -> serde_json::Value {
+    pub fn player_state(&self, player_index: Option<&PlayerIndex>) -> serde_json::Value {
         json!({
             "game": {
                 "board": self.board,
@@ -196,8 +198,9 @@ impl Game {
                 "swap_allowed": self.swap_allowed(),
                 "pass_allowed": self.pass_allowed(),
                 "last_turn_indices": self.last_turn_indices(),
+                "spectating": player_index.is_none(),
             },
-            "rack": self.racks[player_index],
+            "rack": self.rack(player_index),
             "remaining": self.remaining_tiles(player_index)
         })
         // FIXME: include last turn indicies (keep a turn log)
@@ -251,12 +254,9 @@ impl Game {
         Ok(index)
     }
 
-    pub fn rack(&self, index: usize) -> Result<&Rack, Error> {
-        if index < self.racks.len() {
-            Ok(&self.racks[index])
-        } else {
-            Err(Error::IndexOutOfBounds)
-        }
+    pub fn rack(&self, player_index: Option<&PlayerIndex>) -> Option<&Rack> {
+        player_index
+            .and_then(|PlayerIndex(index)| (*index < self.racks.len()).then(|| &self.racks[*index]))
     }
 
     fn init_racks(&mut self) {
@@ -282,7 +282,12 @@ impl Game {
     }
 
     /// Tiles left in the bag or other racks
-    pub fn remaining_tiles(&self, player_index: usize) -> Vec<(String, usize)> {
+    pub fn remaining_tiles(&self, player_index: Option<&PlayerIndex>) -> Vec<(String, usize)> {
+        // for a spectator (None), use index 1 above actual count
+        let player_index = player_index
+            .map(|PlayerIndex(i)| *i)
+            .unwrap_or_else(|| self.racks.len());
+
         let mut remaining = HashMap::new();
         for (index, rack) in self.racks.iter().enumerate() {
             if index != player_index {

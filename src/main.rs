@@ -13,9 +13,10 @@ use std::{
     net::SocketAddr,
 };
 use tracing::{debug, error, warn};
+use tracing_subscriber::{prelude::*, util::SubscriberInitExt, EnvFilter};
 use users::User;
 
-use crate::session::Session;
+use crate::{scrabble::PlayerIndex, session::Session};
 
 mod dictionary;
 mod scrabble;
@@ -30,7 +31,9 @@ mod web;
 #[tokio::main]
 async fn main() {
     let _ = dotenv::dotenv();
-    tracing_subscriber::fmt::init();
+    // tracing_subscriber::fmt::init();
+
+    console_subscriber::Builder::default().init();
 
     dictionary::dictionary().await;
 
@@ -44,7 +47,7 @@ async fn main() {
 
     let mut registry = Registry::default();
     let game_channel = GameChannel::new(pool.clone(), "_template_".parse().unwrap());
-    registry.register_template("game".to_string(), game_channel);
+    registry.register_template("game", game_channel);
 
     let (registry_sender, _registry_handle) = registry.start();
 
@@ -59,8 +62,6 @@ async fn main() {
         .await
         .unwrap();
 }
-
-struct PlayerIndex(usize);
 
 #[derive(Debug)]
 struct GameChannel {
@@ -129,7 +130,7 @@ impl GameChannel {
 impl Channel for GameChannel {
     async fn handle_message(&mut self, message: &DecoratedMessage) -> Option<Message> {
         match &message.inner.kind {
-            MessageKind::Event => match message.inner.event.as_str() {
+            MessageKind::Event => match message.inner.event.as_ref() {
                 "start" => {
                     let _ = self.game.as_mut().unwrap().start();
                     let _ = self.save_state().await;
@@ -152,7 +153,7 @@ impl Channel for GameChannel {
 
                     match self
                         .play(
-                            message.inner.event.as_str(),
+                            message.inner.event.as_ref(),
                             message.inner.payload.clone(),
                             index,
                         )
@@ -213,13 +214,11 @@ impl Channel for GameChannel {
                 let index = self
                     .socket_state
                     .get(&message.token)
-                    .unwrap()
-                    .get::<PlayerIndex>()
-                    .unwrap();
+                    .and_then(|entry| entry.get::<PlayerIndex>());
 
-                match message.inner.event.as_str() {
+                match message.inner.event.as_ref() {
                     "player-state" => {
-                        let payload = self.game.as_ref().unwrap().player_state(index.0);
+                        let payload = self.game.as_ref().unwrap().player_state(index);
                         let reply = message::push(
                             message.channel_id().clone(),
                             message.msg_ref.clone(),
@@ -263,21 +262,18 @@ impl Channel for GameChannel {
 
         let player = Player(user.username);
 
-        let player_index = self
-            .game
-            .as_mut()
-            .unwrap()
-            .add_player(player)
-            .map_err(|e| channel::Error::Join {
-                // FIXME: allow spectators?
-                reason: format!("{:?}", e),
-            })?;
+        match self.game.as_mut().unwrap().add_player(player) {
+            Ok(player_index) => {
+                let _ = self.save_state().await;
+                let state = self.socket_state.entry(message.token).or_default();
 
-        let _ = self.save_state().await;
+                state.insert(PlayerIndex(player_index));
+            }
 
-        let state = self.socket_state.entry(message.token).or_default();
-
-        state.insert(PlayerIndex(player_index));
+            Err(e) => {
+                error!("{:?}", e);
+            }
+        }
 
         Ok(Some(message::broadcast_intercept(
             message.channel_id().clone(),

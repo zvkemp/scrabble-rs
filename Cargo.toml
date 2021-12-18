@@ -10,9 +10,9 @@ rand = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = { version = "^1.0", features = ["raw_value"] }
 axum = { version = "^0.4.2", features = ["ws"] }
-tokio = { version = "*", features = ["full"] }
-axum-channels = { git = "https://github.com/zvkemp/axum-channels" }
+tokio = { version = "*", features = ["full", "tracing"] }
 # axum-channels = { path = "../axum-channels" }
+axum-channels = { git = "https://github.com/zvkemp/axum-channels" }
 askama = "0.10"
 tracing-subscriber = { version = "*", features = ["env-filter"] }
 tracing = "*"
@@ -23,3 +23,4 @@ cookie = { version = "^0.15", features = ["secure"] }
 reqwest = "*"
 dotenv = "*"
 lazy_static = "*"
+console-subscriber = "*"
