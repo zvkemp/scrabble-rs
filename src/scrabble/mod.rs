@@ -25,6 +25,8 @@ pub struct Game {
     #[serde(default)]
     pass_count: usize,
     #[serde(default)]
+    illegal_try_count: usize,
+    #[serde(default)]
     turn_log: Vec<Turn>,
 }
 
@@ -203,7 +205,6 @@ impl Game {
             "rack": self.rack(player_index),
             "remaining": self.remaining_tiles(player_index)
         })
-        // FIXME: include last turn indicies (keep a turn log)
     }
 
     fn swap_allowed(&self) -> bool {
@@ -233,7 +234,6 @@ impl Game {
         }
     }
 
-    // FIXME ensure players are unique
     pub fn add_player(&mut self, player: Player) -> Result<usize, Error> {
         for (index, existing) in self.players.iter().enumerate() {
             if player == *existing {
@@ -329,10 +329,27 @@ impl Game {
         // FIXME: make this an atomic operation? Need something like immutable data;
         // the validation should otherwise check everything
 
-        debug!("{:?}", self.racks);
         debug!("turn={:?}", turn);
         self.validate_turn(&turn)?;
-        self.score_turn(&turn).await?;
+
+        match self.score_turn(&turn).await {
+            Err(Error::IllegalWords(x)) => {
+                self.illegal_try_count += 1;
+
+                if self.illegal_try_count >= 3 {
+                    self.next_player();
+                    self.pass_count = 0;
+                    return Err(Error::TriesExhausted);
+                }
+
+                return Err(Error::IllegalWords(x));
+            }
+            Err(e) => {
+                return Err(e);
+            }
+
+            Ok(..) => {}
+        }
         self.spend_tiles(&turn)?;
         self.board.commit_turn(&turn)?;
         self.turn_log.push(turn);
@@ -433,7 +450,6 @@ impl Game {
         Err(Error::NotConnected)
     }
 
-    // FIXME: make this a chained iterator to look at all connected indexes on the board
     fn connected_indexes(index: usize) -> impl Iterator<Item = usize> {
         let original_row = index / BOARD_SIZE;
 
@@ -462,10 +478,6 @@ impl Game {
             )
     }
 
-    // 0 1 2 3 4
-    // 5 6 7 8 9
-    //
-
     async fn score_turn(&mut self, turn: &Turn) -> Result<(), Error> {
         let overlay = Overlay {
             board: &self.board,
@@ -482,6 +494,7 @@ impl Game {
     fn next_player(&mut self) {
         self.player_index += 1;
         self.player_index %= self.players.len();
+        self.illegal_try_count = 0;
     }
 
     fn spend_tiles(&mut self, turn: &Turn) -> Result<(), Error> {
@@ -511,7 +524,7 @@ impl Game {
     fn last_turn_indices(&self) -> Vec<usize> {
         self.turn_log
             .last()
-            .map(|turn| turn.indexes().map(|x| *x).collect())
+            .map(|turn| turn.indexes().copied().collect())
             .unwrap_or_default()
     }
 }
@@ -566,6 +579,7 @@ impl Game {
             pkid: None,
             name: channel_id.value().unwrap().to_string(),
             pass_count: 0,
+            illegal_try_count: 0,
             turn_log: Default::default(),
         }
     }
@@ -715,6 +729,7 @@ pub enum Error {
     Unknown,
     SwapNotAllowed,
     NotYourTurn,
+    TriesExhausted,
 }
 
 impl std::fmt::Display for Error {
@@ -1577,8 +1592,8 @@ mod test {
         assert_eq!(game.racks[0].len(), 7);
         assert_eq!(game.racks[1].len(), 7);
 
-        let remaining_0 = game.remaining_tiles(0);
-        let remaining_1 = game.remaining_tiles(1);
+        let remaining_0 = game.remaining_tiles(Some(&PlayerIndex(0)));
+        let remaining_1 = game.remaining_tiles(Some(&PlayerIndex(1)));
 
         dbg!(remaining_0);
 

@@ -13,7 +13,6 @@ use std::{
     net::SocketAddr,
 };
 use tracing::{debug, error, warn};
-use tracing_subscriber::{prelude::*, util::SubscriberInitExt, EnvFilter};
 use users::User;
 
 use crate::{scrabble::PlayerIndex, session::Session};
@@ -31,8 +30,6 @@ mod web;
 #[tokio::main]
 async fn main() {
     let _ = dotenv::dotenv();
-    // tracing_subscriber::fmt::init();
-
     console_subscriber::Builder::default().init();
 
     dictionary::dictionary().await;
@@ -56,7 +53,6 @@ async fn main() {
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
     let socket_addr = SocketAddr::new("0.0.0.0".parse().unwrap(), port.parse().unwrap());
 
-    // FIXME use PORT
     axum::Server::bind(&socket_addr)
         .serve(app.into_make_service())
         .await
@@ -97,20 +93,20 @@ impl GameChannel {
             return Err(scrabble::Error::NotYourTurn);
         }
 
-        // FIXME: validate player index here
-
-        match event {
-            "play" => game.play(turn).await?,
-            "swap" => game.swap(turn)?,
-            "pass" => game.pass()?,
+        let result = match event {
+            "play" => game.play(turn).await,
+            "swap" => game.swap(turn),
+            "pass" => game.pass(),
             _ => {
                 error!("unknown event {:?}", event);
                 return Err(scrabble::Error::Unknown);
             }
-        }
+        };
+
+        // save state even if an error is returned
         self.save_state().await?;
 
-        Ok(())
+        result
     }
 
     async fn save_state(&mut self) -> Result<(), scrabble::Error> {
@@ -122,6 +118,10 @@ impl GameChannel {
                 Err(e)
             }
         }
+    }
+
+    fn broadcast_player_state(&self, channel_id: ChannelId) -> Message {
+        message::broadcast_intercept(channel_id, "player-state".into(), Default::default())
     }
 }
 
@@ -135,11 +135,7 @@ impl Channel for GameChannel {
                     let _ = self.game.as_mut().unwrap().start();
                     let _ = self.save_state().await;
 
-                    Some(message::broadcast_intercept(
-                        message.channel_id().clone(),
-                        "player-state".into(),
-                        Default::default(),
-                    ))
+                    Some(self.broadcast_player_state(message.channel_id().clone()))
                 }
 
                 "play" | "swap" | "pass" => {
@@ -159,23 +155,37 @@ impl Channel for GameChannel {
                         )
                         .await
                     {
-                        Ok(_) => Some(message::broadcast_intercept(
-                            message.channel_id().clone(),
-                            "player-state".into(),
-                            Default::default(),
-                        )),
+                        Ok(_) => Some(self.broadcast_player_state(message.channel_id().clone())),
                         Err(e) => {
                             error!("{:?}", e);
                             let msg = format!("{:?}", e);
 
-                            Some(message::push(
-                                message.channel_id().clone(),
-                                message.msg_ref.clone(),
-                                "error".into(),
-                                serde_json::json!({
-                                    "message": msg,
-                                }),
-                            ))
+                            match e {
+                                scrabble::Error::TriesExhausted => {
+                                    let mut msg =
+                                        self.broadcast_player_state(message.channel_id().clone());
+
+                                    let state = self.socket_state.entry(message.token).or_default();
+                                    let player = state.get::<Player>();
+
+                                    msg.payload = json!({
+                                        "message":
+                                            format!(
+                                                "{:?} lost a turn due to illegal maneuvers!",
+                                                player
+                                            )
+                                    });
+                                    dbg!(Some(msg))
+                                }
+                                _ => Some(message::push(
+                                    message.channel_id().clone(),
+                                    message.msg_ref.clone(),
+                                    "error".into(),
+                                    serde_json::json!({
+                                        "message": msg,
+                                    }),
+                                )),
+                            }
                         }
                     }
                 }
@@ -216,9 +226,16 @@ impl Channel for GameChannel {
                     .get(&message.token)
                     .and_then(|entry| entry.get::<PlayerIndex>());
 
+                // FIXME: ideally, we would be able to send
+                // two messages in response to an action
+                let flash = dbg!(message.inner.payload.get("message"));
+
                 match message.inner.event.as_ref() {
                     "player-state" => {
-                        let payload = self.game.as_ref().unwrap().player_state(index);
+                        let mut payload = self.game.as_ref().unwrap().player_state(index);
+                        if let Some(flash) = flash {
+                            payload["message"] = flash.clone();
+                        }
                         let reply = message::push(
                             message.channel_id().clone(),
                             message.msg_ref.clone(),
@@ -262,12 +279,13 @@ impl Channel for GameChannel {
 
         let player = Player(user.username);
 
-        match self.game.as_mut().unwrap().add_player(player) {
+        match self.game.as_mut().unwrap().add_player(player.clone()) {
             Ok(player_index) => {
                 let _ = self.save_state().await;
                 let state = self.socket_state.entry(message.token).or_default();
 
                 state.insert(PlayerIndex(player_index));
+                state.insert(player);
             }
 
             Err(e) => {
@@ -275,11 +293,9 @@ impl Channel for GameChannel {
             }
         }
 
-        Ok(Some(message::broadcast_intercept(
-            message.channel_id().clone(),
-            "player-state".into(),
-            Default::default(),
-        )))
+        Ok(Some(
+            self.broadcast_player_state(message.channel_id().clone()),
+        ))
     }
 
     async fn handle_presence(

@@ -82,13 +82,14 @@ class Scrabble {
       .receive("ok", resp => { console.log(`joined game:${this.game_id}`, resp) })
       .receive("error", resp => { console.error("unable to join", resp) })
 
-    this.channel.on("player-state", ({ game, rack, remaining }) => {
+    this.channel.on("player-state", ({ game, rack, remaining, message }) => {
 
       console.log({ game, rack, remaining });
 
       if (game) { this.handleGameState({ game }) }
       if (rack) { this.handleRack({ rack }) }
       if (remaining) { this.handleRemaining({ remaining }) }
+      if (message) { this.flash("info", { message }) }
     });
 
     this.channel.on("new_proposed", payload => {
