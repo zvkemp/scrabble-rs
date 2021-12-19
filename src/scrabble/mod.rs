@@ -1216,6 +1216,7 @@ impl TryFrom<serde_json::Value> for Turn {
                     .iter()
                     .map(|(string, char)| {
                         (
+                            // FIXME: this sometimes panics on join (???) with Invalid Digit
                             string.parse().unwrap(),
                             char.as_str().unwrap().parse().unwrap(),
                         )

@@ -232,7 +232,7 @@ dependencies = [
 [[package]]
 name = "axum-channels"
 version = "0.1.0"
-source = "git+https://github.com/zvkemp/axum-channels#4ea2ff9f84368d5d8fc0a29eb1211c6f32664b92"
+source = "git+https://github.com/zvkemp/axum-channels#0e6323fd554a8ad00b66965530541a576e871656"
 dependencies = [
  "axum",
  "futures",

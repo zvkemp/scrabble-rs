@@ -1,7 +1,7 @@
 use axum::{async_trait, http};
 use axum_channels::{
-    channel::{self, Channel, NewChannel, Presence},
-    message::{self, DecoratedMessage, Message, MessageKind},
+    channel::{self, Channel, MessageContext, NewChannel, Presence},
+    message::{self, Message, MessageKind},
     registry::Registry,
     types::{ChannelId, Token},
 };
@@ -128,7 +128,7 @@ impl GameChannel {
 // FIXME: need a nicer way to declare messages
 #[async_trait]
 impl Channel for GameChannel {
-    async fn handle_message(&mut self, message: &DecoratedMessage) -> Option<Message> {
+    async fn handle_message(&mut self, message: &MessageContext) -> Option<Message> {
         match &message.inner.kind {
             MessageKind::Event => match message.inner.event.as_ref() {
                 "start" => {
@@ -162,20 +162,26 @@ impl Channel for GameChannel {
 
                             match e {
                                 scrabble::Error::TriesExhausted => {
-                                    let mut msg =
+                                    let mut reply =
                                         self.broadcast_player_state(message.channel_id().clone());
 
                                     let state = self.socket_state.entry(message.token).or_default();
                                     let player = state.get::<Player>();
+                                    let info = message::broadcast(
+                                        message.channel_id().clone(),
+                                        "info".into(),
+                                        json!({
+                                            "message":
+                                                format!(
+                                                    "{:?} lost a turn due to illegal maneuvers!",
+                                                    player
+                                                )
+                                        }),
+                                    );
 
-                                    msg.payload = json!({
-                                        "message":
-                                            format!(
-                                                "{:?} lost a turn due to illegal maneuvers!",
-                                                player
-                                            )
-                                    });
-                                    dbg!(Some(msg))
+                                    message.push(info);
+
+                                    dbg!(Some(reply))
                                 }
                                 _ => Some(message::push(
                                     message.channel_id().clone(),
@@ -218,7 +224,7 @@ impl Channel for GameChannel {
         }
     }
 
-    async fn handle_out(&mut self, message: &DecoratedMessage) -> Option<Message> {
+    async fn handle_out(&mut self, message: &MessageContext) -> Option<Message> {
         match &message.inner.kind {
             MessageKind::BroadcastIntercept => {
                 let index = self
@@ -254,7 +260,7 @@ impl Channel for GameChannel {
 
     async fn handle_join(
         &mut self,
-        message: &DecoratedMessage,
+        message: &MessageContext,
     ) -> Result<Option<Message>, channel::Error> {
         if self.game.is_none() {
             let game = Game::fetch(message.channel_id().clone(), &self.pg_pool).await;
@@ -320,7 +326,7 @@ impl Channel for GameChannel {
 
     async fn handle_leave(
         &mut self,
-        message: &DecoratedMessage,
+        message: &MessageContext,
     ) -> axum_channels::channel::Result<Option<Message>> {
         self.socket_state.remove(&message.token);
         Ok(None)
