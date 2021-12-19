@@ -393,6 +393,7 @@ impl Game {
         self.fill_rack_at(self.player_index);
         self.repopulate_bag(&turn);
         self.turn_log.push(Default::default());
+        self.next_player();
 
         Ok(())
     }
