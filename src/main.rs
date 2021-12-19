@@ -119,29 +119,25 @@ impl GameChannel {
             }
         }
     }
-
-    fn broadcast_player_state(&self, channel_id: ChannelId) -> Message {
-        message::broadcast_intercept(channel_id, "player-state".into(), Default::default())
-    }
 }
 
 // FIXME: need a nicer way to declare messages
 #[async_trait]
 impl Channel for GameChannel {
-    async fn handle_message(&mut self, message: &MessageContext) -> Option<Message> {
-        match &message.inner.kind {
-            MessageKind::Event => match message.inner.event.as_ref() {
+    async fn handle_message(&mut self, context: &MessageContext) -> Option<Message> {
+        match &context.inner.kind {
+            MessageKind::Event => match context.inner.event.as_ref() {
                 "start" => {
                     let _ = self.game.as_mut().unwrap().start();
                     let _ = self.save_state().await;
 
-                    Some(self.broadcast_player_state(message.channel_id().clone()))
+                    Some(context.broadcast_intercept("player-state".into(), Default::default()))
                 }
 
                 "play" | "swap" | "pass" => {
                     let index = self
                         .socket_state
-                        .get(&message.token)
+                        .get(&context.token)
                         .unwrap()
                         .get::<PlayerIndex>()
                         .unwrap()
@@ -149,26 +145,29 @@ impl Channel for GameChannel {
 
                     match self
                         .play(
-                            message.inner.event.as_ref(),
-                            message.inner.payload.clone(),
+                            context.inner.event.as_ref(),
+                            context.inner.payload.clone(),
                             index,
                         )
                         .await
                     {
-                        Ok(_) => Some(self.broadcast_player_state(message.channel_id().clone())),
+                        Ok(_) => Some(
+                            context.broadcast_intercept("player-state".into(), Default::default()),
+                        ),
                         Err(e) => {
                             error!("{:?}", e);
                             let msg = format!("{:?}", e);
 
                             match e {
                                 scrabble::Error::TriesExhausted => {
-                                    let mut reply =
-                                        self.broadcast_player_state(message.channel_id().clone());
+                                    let reply = context.broadcast_intercept(
+                                        "player-state".into(),
+                                        Default::default(),
+                                    );
 
-                                    let state = self.socket_state.entry(message.token).or_default();
+                                    let state = self.socket_state.entry(context.token).or_default();
                                     let player = state.get::<Player>();
-                                    let info = message::broadcast(
-                                        message.channel_id().clone(),
+                                    let info = context.broadcast(
                                         "info".into(),
                                         json!({
                                             "message":
@@ -179,13 +178,11 @@ impl Channel for GameChannel {
                                         }),
                                     );
 
-                                    message.push(info);
-
-                                    dbg!(Some(reply))
+                                    context.send(info);
+                                    Some(reply)
                                 }
-                                _ => Some(message::push(
-                                    message.channel_id().clone(),
-                                    message.msg_ref.clone(),
+                                _ => Some(context.push(
+                                    context.msg_ref.clone(),
                                     "error".into(),
                                     serde_json::json!({
                                         "message": msg,
@@ -196,17 +193,15 @@ impl Channel for GameChannel {
                     }
                 }
 
-                "proposed" => match self.propose(message.inner.payload.clone()) {
-                    Ok(scores) => Some(message::push(
-                        message.channel_id().clone(),
-                        message.msg_ref.clone(),
+                "proposed" => match self.propose(context.inner.payload.clone()) {
+                    Ok(scores) => Some(context.push(
+                        context.msg_ref.clone(),
                         "info".into(),
                         serde_json::json!({ "message": format!("{:?}", scores) }),
                     )),
 
-                    Err(e) => Some(message::push(
-                        message.channel_id().clone(),
-                        message.msg_ref.clone(),
+                    Err(e) => Some(context.push(
+                        context.msg_ref.clone(),
                         "error".into(),
                         serde_json::json!({ "message": format!("{:?}", e) }),
                     )),
@@ -215,7 +210,7 @@ impl Channel for GameChannel {
                 other => {
                     warn!(
                         "unhandled message [{}]; payload={:?}",
-                        other, message.inner.payload
+                        other, context.inner.payload
                     );
                     None
                 }
@@ -224,28 +219,20 @@ impl Channel for GameChannel {
         }
     }
 
-    async fn handle_out(&mut self, message: &MessageContext) -> Option<Message> {
-        match &message.inner.kind {
+    async fn handle_out(&mut self, context: &MessageContext) -> Option<Message> {
+        match &context.inner.kind {
             MessageKind::BroadcastIntercept => {
                 let index = self
                     .socket_state
-                    .get(&message.token)
+                    .get(&context.token)
                     .and_then(|entry| entry.get::<PlayerIndex>());
 
-                // FIXME: ideally, we would be able to send
-                // two messages in response to an action
-                let flash = dbg!(message.inner.payload.get("message"));
-
-                match message.inner.event.as_ref() {
+                match context.inner.event.as_ref() {
                     "player-state" => {
-                        let mut payload = self.game.as_ref().unwrap().player_state(index);
-                        if let Some(flash) = flash {
-                            payload["message"] = flash.clone();
-                        }
-                        let reply = message::push(
-                            message.channel_id().clone(),
-                            message.msg_ref.clone(),
-                            message.inner.event.clone(),
+                        let payload = self.game.as_ref().unwrap().player_state(index);
+                        let reply = context.push(
+                            context.msg_ref.clone(),
+                            context.inner.event.clone(),
                             payload,
                         );
 
@@ -260,16 +247,16 @@ impl Channel for GameChannel {
 
     async fn handle_join(
         &mut self,
-        message: &MessageContext,
+        context: &MessageContext,
     ) -> Result<Option<Message>, channel::Error> {
         if self.game.is_none() {
-            let game = Game::fetch(message.channel_id().clone(), &self.pg_pool).await;
-            debug!("setting up game {:?}...", message.channel_id());
+            let game = Game::fetch(context.channel_id().clone(), &self.pg_pool).await;
+            debug!("setting up game {:?}...", context.channel_id());
             self.game = Some(game);
         }
 
-        debug!("{:?}", message);
-        let token = message
+        debug!("{:?}", context);
+        let token = context
             .inner
             .payload
             .get("token")
@@ -288,7 +275,7 @@ impl Channel for GameChannel {
         match self.game.as_mut().unwrap().add_player(player.clone()) {
             Ok(player_index) => {
                 let _ = self.save_state().await;
-                let state = self.socket_state.entry(message.token).or_default();
+                let state = self.socket_state.entry(context.token).or_default();
 
                 state.insert(PlayerIndex(player_index));
                 state.insert(player);
@@ -299,11 +286,13 @@ impl Channel for GameChannel {
             }
         }
 
-        Ok(Some(
-            self.broadcast_player_state(message.channel_id().clone()),
-        ))
+        Ok(Some(context.broadcast_intercept(
+            "player-state".into(),
+            Default::default(),
+        )))
     }
 
+    // FIXME: MessageContext
     async fn handle_presence(
         &mut self,
         channel_id: &ChannelId,
@@ -315,20 +304,24 @@ impl Channel for GameChannel {
             online.insert(user.get("player").unwrap().as_str().unwrap());
         }
 
-        let message = message::broadcast(
-            channel_id.clone(),
-            "presence".into(),
-            serde_json::json!({ "online": online.iter().collect::<Vec<_>>() }),
-        );
+        let message = Message {
+            channel_id: channel_id.clone(),
+            event: "presence".into(),
+            payload: serde_json::json!({"online":online.iter().collect::<Vec<_>>()}),
+            kind: MessageKind::Broadcast,
+            msg_ref: None,
+            join_ref: None,
+            channel_sender: None,
+        };
 
         Ok(Some(message))
     }
 
     async fn handle_leave(
         &mut self,
-        message: &MessageContext,
+        context: &MessageContext,
     ) -> axum_channels::channel::Result<Option<Message>> {
-        self.socket_state.remove(&message.token);
+        self.socket_state.remove(&context.token);
         Ok(None)
     }
 }
