@@ -131,7 +131,10 @@ impl Channel for GameChannel {
                     let _ = self.game.as_mut().unwrap().start();
                     let _ = self.save_state().await;
 
-                    Some(context.broadcast_intercept("player-state".into(), Default::default()))
+                    Some(
+                        context
+                            .build_broadcast_intercept("player-state".into(), Default::default()),
+                    )
                 }
 
                 "play" | "swap" | "pass" => {
@@ -151,16 +154,19 @@ impl Channel for GameChannel {
                         )
                         .await
                     {
-                        Ok(_) => Some(
-                            context.broadcast_intercept("player-state".into(), Default::default()),
-                        ),
+                        Ok(_) => {
+                            Some(context.build_broadcast_intercept(
+                                "player-state".into(),
+                                Default::default(),
+                            ))
+                        }
                         Err(e) => {
                             error!("{:?}", e);
                             let msg = format!("{:?}", e);
 
                             match e {
                                 scrabble::Error::TriesExhausted => {
-                                    let reply = context.broadcast_intercept(
+                                    let reply = context.build_broadcast_intercept(
                                         "player-state".into(),
                                         Default::default(),
                                     );
@@ -178,10 +184,9 @@ impl Channel for GameChannel {
                                         }),
                                     );
 
-                                    context.send(info);
                                     Some(reply)
                                 }
-                                _ => Some(context.push(
+                                _ => Some(context.build_push(
                                     context.msg_ref.clone(),
                                     "error".into(),
                                     serde_json::json!({
@@ -194,13 +199,13 @@ impl Channel for GameChannel {
                 }
 
                 "proposed" => match self.propose(context.inner.payload.clone()) {
-                    Ok(scores) => Some(context.push(
+                    Ok(scores) => Some(context.build_push(
                         context.msg_ref.clone(),
                         "info".into(),
                         serde_json::json!({ "message": format!("{:?}", scores) }),
                     )),
 
-                    Err(e) => Some(context.push(
+                    Err(e) => Some(context.build_push(
                         context.msg_ref.clone(),
                         "error".into(),
                         serde_json::json!({ "message": format!("{:?}", e) }),
@@ -230,7 +235,7 @@ impl Channel for GameChannel {
                 match context.inner.event.as_ref() {
                     "player-state" => {
                         let payload = self.game.as_ref().unwrap().player_state(index);
-                        let reply = context.push(
+                        let reply = context.build_push(
                             context.msg_ref.clone(),
                             context.inner.event.clone(),
                             payload,
@@ -286,7 +291,7 @@ impl Channel for GameChannel {
             }
         }
 
-        Ok(Some(context.broadcast_intercept(
+        Ok(Some(context.build_broadcast_intercept(
             "player-state".into(),
             Default::default(),
         )))
