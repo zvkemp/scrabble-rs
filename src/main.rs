@@ -106,6 +106,7 @@ impl GameChannel {
         // save state even if an error is returned
         self.save_state().await?;
 
+        // FIXME: optional message (e.g. 'player swapped 5 tiles');
         result
     }
 

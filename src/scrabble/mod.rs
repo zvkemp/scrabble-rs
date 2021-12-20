@@ -1088,7 +1088,6 @@ impl<S: GetChar> Iterator for Words<'_, S> {
             if current.len() > 1 {
                 return Some(current.clone());
             } else {
-                self.advance();
                 current.clear();
             }
         }
@@ -1597,8 +1596,6 @@ mod test {
         let remaining_0 = game.remaining_tiles(Some(&PlayerIndex(0)));
         let remaining_1 = game.remaining_tiles(Some(&PlayerIndex(1)));
 
-        dbg!(remaining_0);
-
         let turn_a = Turn {
             tiles: vec![
                 (111, l!('S')),
@@ -1651,5 +1648,24 @@ mod test {
 
         let sum: usize = counts.values().sum();
         assert_eq!(sum, 100);
+    }
+
+    #[test]
+    fn test_bad_data() {
+        let data = include_str!("../../bad_data.json");
+        let game: Game = serde_json::from_str(data).unwrap();
+
+        let turn = Turn {
+            tiles: vec![(105, l!('Q')), (106, l!('U')), (108, l!('D'))],
+        };
+
+        let proposed = game.propose(&turn);
+
+        assert_eq!(
+            proposed,
+            TurnScore {
+                scores: vec![("QUAD".to_string(), 48)]
+            }
+        );
     }
 }
