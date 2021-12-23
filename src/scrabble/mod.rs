@@ -37,7 +37,7 @@ pub mod persistence {
     use sqlx::types::Json;
     use sqlx::{query, FromRow, PgExecutor};
 
-    #[derive(FromRow, Debug)]
+    #[derive(Debug)]
     pub struct SavedGame {
         pub id: i64,
         pub name: String,
@@ -215,12 +215,12 @@ impl Game {
         matches!(self.state, State::Started) && self.bag.len() < 7
     }
 
-    fn serializable_scores(&self) -> HashMap<&str, &[TurnScore]> {
+    fn serializable_scores(&self) -> HashMap<&str, Vec<&TurnScore>> {
         let mut map = HashMap::new();
 
         for (index, player) in self.players.iter().enumerate() {
             map.entry(player.as_str())
-                .or_insert_with(|| self.scores[index].as_slice());
+                .or_insert_with(|| self.scores[index].iter().rev().collect());
         }
 
         map
@@ -1595,6 +1595,8 @@ mod test {
 
         let remaining_0 = game.remaining_tiles(Some(&PlayerIndex(0)));
         let remaining_1 = game.remaining_tiles(Some(&PlayerIndex(1)));
+
+        assert_ne!(remaining_0, remaining_1);
 
         let turn_a = Turn {
             tiles: vec![

@@ -1,10 +1,8 @@
 use axum::{async_trait, http};
-use axum_channels::{
-    channel::{self, Channel, MessageContext, NewChannel, Presence},
-    message::{self, Message, MessageKind},
-    registry::Registry,
-    types::{ChannelId, Token},
-};
+use axum_channels::channel::{self, Channel, MessageContext, NewChannel, Presence};
+use axum_channels::message::{Message, MessageKind};
+use axum_channels::registry::Registry;
+use axum_channels::types::{ChannelId, Token};
 use scrabble::{Game, Player, TurnScore};
 use serde_json::json;
 use sqlx::{postgres::PgPoolOptions, PgPool};
@@ -64,6 +62,7 @@ struct GameChannel {
     pub(crate) game: Option<Game>,
     pub(crate) socket_state: HashMap<Token, http::Extensions>,
     pub(crate) pg_pool: PgPool,
+    pub(crate) channel_id: ChannelId,
 }
 
 impl GameChannel {
@@ -72,6 +71,7 @@ impl GameChannel {
             game: None,
             socket_state: HashMap::new(),
             pg_pool,
+            channel_id,
         }
     }
 
@@ -174,7 +174,8 @@ impl Channel for GameChannel {
 
                                     let state = self.socket_state.entry(context.token).or_default();
                                     let player = state.get::<Player>();
-                                    let info = context.broadcast(
+
+                                    context.broadcast(
                                         "info".into(),
                                         json!({
                                             "message":
