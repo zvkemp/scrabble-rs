@@ -100,6 +100,12 @@ impl std::fmt::Debug for Game {
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct Player(pub(crate) String);
 
+impl std::fmt::Display for Player {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 pub type Rack = Vec<Tile>;
 
 impl Game {
@@ -1154,6 +1160,10 @@ pub struct TurnScore {
 impl Turn {
     fn indexes(&self) -> impl Iterator<Item = &usize> {
         self.tiles.iter().map(|(i, _)| i)
+    }
+
+    pub fn len(&self) -> usize {
+        self.tiles.len()
     }
 
     fn is_bingo(&self) -> bool {

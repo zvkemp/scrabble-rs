@@ -3,7 +3,7 @@ use axum_channels::channel::{self, Channel, MessageContext, NewChannel, Presence
 use axum_channels::message::{Message, MessageKind};
 use axum_channels::registry::Registry;
 use axum_channels::types::{ChannelId, Token};
-use scrabble::{Game, Player, TurnScore};
+use scrabble::{Game, Player, Turn, TurnScore};
 use serde_json::json;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{
@@ -85,18 +85,22 @@ impl GameChannel {
         event: &str,
         payload: serde_json::Value,
         player_index: usize,
-    ) -> Result<(), scrabble::Error> {
-        let turn = payload.try_into()?;
+        player: Player,
+    ) -> Result<Option<String>, scrabble::Error> {
+        let turn: Turn = payload.try_into()?;
         let game = self.game.as_mut().unwrap();
 
         if game.player_index != player_index {
             return Err(scrabble::Error::NotYourTurn);
         }
 
+        let turn_len = turn.len();
         let result = match event {
-            "play" => game.play(turn).await,
-            "swap" => game.swap(turn),
-            "pass" => game.pass(),
+            "play" => game.play(turn).await.map(|_| None),
+            "swap" => game
+                .swap(turn)
+                .map(|_| Some(format!("{} swapped {} tiles", player, turn_len))),
+            "pass" => game.pass().map(|_| Some(format!("{} passed", player))),
             _ => {
                 error!("unknown event {:?}", event);
                 return Err(scrabble::Error::Unknown);
@@ -147,19 +151,30 @@ impl Channel for GameChannel {
                         .unwrap()
                         .0;
 
+                    let player = self
+                        .socket_state
+                        .get(&context.token)
+                        .unwrap()
+                        .get::<Player>()
+                        .unwrap()
+                        .clone();
+
                     match self
                         .play(
                             context.inner.event.as_ref(),
                             context.inner.payload.clone(),
                             index,
+                            player,
                         )
                         .await
                     {
-                        Ok(_) => {
-                            Some(context.build_broadcast_intercept(
-                                "player-state".into(),
-                                Default::default(),
-                            ))
+                        Ok(msg) => {
+                            context.broadcast_intercept("player-state".into(), Default::default());
+
+                            msg.map(|message| {
+                                context
+                                    .build_broadcast("info".into(), json!({ "message": message }))
+                            })
                         }
                         Err(e) => {
                             error!("{:?}", e);
@@ -175,7 +190,7 @@ impl Channel for GameChannel {
                                     let state = self.socket_state.entry(context.token).or_default();
                                     let player = state.get::<Player>();
 
-                                    context.broadcast(
+                                    let _ = context.broadcast(
                                         "info".into(),
                                         json!({
                                             "message":
