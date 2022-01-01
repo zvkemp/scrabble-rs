@@ -1,9 +1,10 @@
 use axum::extract::{FromRequest, RequestParts};
-use axum::http::StatusCode;
+use axum::http::{Request, StatusCode};
 use axum::{async_trait, http};
 use cookie::{Cookie, CookieJar, Key};
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use tower::{Layer, Service};
+use tracing::{error, info};
 
 use crate::users::User;
 
@@ -49,8 +50,6 @@ fn key() -> &'static Key {
     &*KEY
 }
 
-pub struct ExtractCookies;
-
 pub static SESSION_COOKIE_NAME: &str = "_scrabble_rs_session";
 
 lazy_static::lazy_static! {
@@ -61,43 +60,6 @@ lazy_static::lazy_static! {
 
 fn secret_key_base() -> &'static [u8] {
     SECRET.as_bytes()
-}
-
-// inserts cookie jar into extensions
-#[async_trait]
-impl<B> FromRequest<B> for ExtractCookies
-where
-    B: Send,
-{
-    type Rejection = StatusCode;
-
-    async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        let headers = req.headers().expect("headers have already been taken");
-
-        let cookie_header: String = headers
-            .get(http::header::COOKIE)
-            .and_then(|value| value.to_str().ok())
-            .map(|value| value.to_string())
-            .unwrap_or_default();
-
-        let mut jar = CookieJar::new();
-
-        for cookie in cookie_header.split("; ") {
-            tracing::debug!("attempting to parse {:?}", cookie);
-            if !cookie.is_empty() {
-                jar.add_original(cookie.parse().map_err(|e| {
-                    error!("{:?}", e);
-                    StatusCode::INTERNAL_SERVER_ERROR
-                })?)
-            }
-        }
-
-        req.extensions_mut()
-            .expect("extensions did not exist")
-            .insert(jar);
-
-        Ok(ExtractCookies)
-    }
 }
 
 #[async_trait]
@@ -127,7 +89,69 @@ where
     }
 }
 
-// fn new_session_cookie(session: &Session) -> Result<Cookie,
+#[derive(Debug, Clone)]
+pub(crate) struct ExtractCookiesLayer;
+
+#[derive(Debug, Clone)]
+pub(crate) struct ExtractCookiesMiddleware<S> {
+    service: S,
+}
+
+impl<S, B> Service<http::Request<B>> for ExtractCookiesMiddleware<S>
+where
+    S: Service<http::Request<B>>,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = S::Future;
+
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.service.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: Request<B>) -> Self::Future {
+        let (mut parts, body) = req.into_parts();
+
+        let cookie_header: String = parts
+            .headers
+            .get(http::header::COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+
+        let mut jar = CookieJar::new();
+
+        for cookie in cookie_header.split("; ") {
+            tracing::debug!("attempting to parse {:?}", cookie);
+            if !cookie.is_empty() {
+                jar.add_original(
+                    cookie
+                        .parse()
+                        .map_err(|e| {
+                            error!("{:?}", e);
+                            StatusCode::INTERNAL_SERVER_ERROR
+                        })
+                        .unwrap(), // FIXME
+                )
+            }
+        }
+
+        parts.extensions.insert(jar);
+
+        self.service.call(Request::from_parts(parts, body))
+    }
+}
+
+impl<S> Layer<S> for ExtractCookiesLayer {
+    type Service = ExtractCookiesMiddleware<S>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        ExtractCookiesMiddleware { service: inner }
+    }
+}
 
 #[cfg(test)]
 mod tests {

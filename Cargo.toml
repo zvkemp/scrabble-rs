@@ -13,6 +13,7 @@ axum = { version = "^0.4.2", features = ["ws"] }
 tokio = { version = "*", features = ["full", "tracing"] }
 # axum-channels = { path = "../axum-channels" }
 axum-channels = { git = "https://github.com/zvkemp/axum-channels" }
+tower = "*"
 askama = "0.10"
 tracing-subscriber = { version = "*", features = ["env-filter"] }
 tracing = "*"

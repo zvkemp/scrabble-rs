@@ -17,7 +17,7 @@ use sqlx::PgPool;
 use tokio::sync::oneshot;
 use tracing::debug;
 
-use crate::session::{self, ExtractCookies, Session};
+use crate::session::{self, ExtractCookiesLayer, ExtractCookiesMiddleware, Session};
 use crate::users;
 use crate::users::User;
 
@@ -45,12 +45,13 @@ pub fn app(registry: RegistrySender, pool: PgPool) -> Router {
         .route("/simple/websocket", get(ws_handler))
         .route("/play/:game_id", get(show_game))
         .route("/rand_game", get(rand_game))
+        .route("/debug/registry", get(debug_registry))
+        .layer(ExtractCookiesLayer)
+        .layer(AddExtensionLayer::new(registry))
+        .layer(AddExtensionLayer::new(pool))
         .route("/js/index.js", get(assets::index_js))
         .route("/js/index.js.map", get(assets::index_js_map))
         .route("/css/styles.css", get(assets::css))
-        .route("/debug/registry", get(debug_registry))
-        .layer(AddExtensionLayer::new(registry))
-        .layer(AddExtensionLayer::new(pool))
     // .layer(AddExtensionLayer::new(store))
 }
 
@@ -63,7 +64,6 @@ async fn new_login() -> Html<String> {
 
 async fn create_login(
     Form(login): Form<Login>,
-    _: ExtractCookies,
     Extension(pool): Extension<PgPool>,
     Extension(mut jar): Extension<CookieJar>,
 ) -> Result<(HeaderMap, Redirect), Error> {
@@ -108,7 +108,6 @@ async fn create_registration(
 }
 
 async fn debug_registry(
-    _: ExtractCookies,
     _session: Session,
     Extension(registry): Extension<RegistrySender>,
 ) -> String {
@@ -196,7 +195,6 @@ async fn ws_handler(
 
 async fn show_game(
     Path(game_id): Path<String>,
-    _: ExtractCookies,
     session: Session,
     Extension(pg_pool): Extension<PgPool>,
 ) -> Result<Html<String>, Redirect> {
@@ -243,7 +241,7 @@ struct NewLoginTemplate<'a> {
     csrf_token: &'a str,
 }
 
-async fn index(_: ExtractCookies, session: Option<Session>) -> Html<String> {
+async fn index(session: Option<Session>) -> Html<String> {
     let info = format!("{:?}", session);
     let template = IndexTemplate {
         info: info.as_str(),
@@ -251,7 +249,7 @@ async fn index(_: ExtractCookies, session: Option<Session>) -> Html<String> {
     Html(template.render().unwrap())
 }
 
-async fn rand_game(_: ExtractCookies, session: Session) -> Result<Redirect, Redirect> {
+async fn rand_game(session: Session) -> Result<Redirect, Redirect> {
     if session.user_id.is_some() {
         let rand_string: String = thread_rng()
             .sample_iter(&Alphanumeric)
