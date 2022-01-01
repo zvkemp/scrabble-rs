@@ -18,7 +18,7 @@ use tokio::sync::oneshot;
 use tracing::debug;
 
 use crate::session::{
-    self, ExtractCookiesLayer, ExtractCookiesMiddleware, ExtractSessionLayer, Session,
+    self, CurrentUser, ExtractCookiesLayer, ExtractCookiesMiddleware, ExtractSessionLayer, Session,
 };
 use crate::users;
 use crate::users::User;
@@ -114,10 +114,7 @@ async fn create_registration(
     Ok(Html(format!("user_id={}", id)))
 }
 
-async fn debug_registry(
-    _session: Session,
-    Extension(registry): Extension<RegistrySender>,
-) -> String {
+async fn debug_registry(_: CurrentUser, Extension(registry): Extension<RegistrySender>) -> String {
     let (tx, rx) = oneshot::channel();
     registry.send(RegistryMessage::Debug(tx));
     rx.await.unwrap()
@@ -200,26 +197,17 @@ async fn ws_handler(
     })
 }
 
-async fn show_game(
-    Path(game_id): Path<String>,
-    session: Session,
-    Extension(pg_pool): Extension<PgPool>,
-) -> Result<Html<String>, Redirect> {
-    if session.user_id.is_some() {
-        let user = User::find(session.user_id.unwrap(), &pg_pool)
-            .await
-            .unwrap();
-        let token = session.token();
-        let template = GameTemplate {
-            game_id: game_id.as_str(),
-            token: token.as_str(),
-            player: user.username.as_str(),
-        };
+async fn show_game(Path(game_id): Path<String>, CurrentUser(user): CurrentUser) -> Html<String> {
+    let session = Session::from(&user);
+    let token = session.token();
 
-        Ok(Html(template.render().unwrap()))
-    } else {
-        Err(Redirect::to("/login".parse().unwrap()))
-    }
+    let template = GameTemplate {
+        game_id: game_id.as_str(),
+        token: token.as_str(),
+        player: user.username.as_str(),
+    };
+
+    Html(template.render().unwrap())
 }
 
 #[derive(Template)]
@@ -256,20 +244,14 @@ async fn index(session: Option<Session>) -> Html<String> {
     Html(template.render().unwrap())
 }
 
-async fn rand_game(session: Session) -> Result<Redirect, Redirect> {
-    if session.user_id.is_some() {
-        let rand_string: String = thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(30)
-            .map(char::from)
-            .collect();
+async fn rand_game(_: CurrentUser) -> Redirect {
+    let rand_string: String = thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(30)
+        .map(char::from)
+        .collect();
 
-        Ok(Redirect::to(
-            format!("/play/{}", rand_string).parse().unwrap(),
-        ))
-    } else {
-        Err(Redirect::to("/login".parse().unwrap()))
-    }
+    Redirect::to(format!("/play/{}", rand_string).parse().unwrap())
 }
 
 mod assets {

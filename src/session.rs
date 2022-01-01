@@ -1,8 +1,10 @@
 use axum::extract::{FromRequest, RequestParts};
 use axum::http::{Request, StatusCode};
+use axum::response::Redirect;
 use axum::{async_trait, http};
 use cookie::{Cookie, CookieJar, Key};
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 use tower::{Layer, Service};
 use tracing::{debug, error, info};
 
@@ -15,6 +17,14 @@ pub struct Session {
 
 impl From<User> for Session {
     fn from(user: User) -> Self {
+        Self {
+            user_id: Some(user.id),
+        }
+    }
+}
+
+impl From<&User> for Session {
+    fn from(user: &User) -> Self {
         Self {
             user_id: Some(user.id),
         }
@@ -74,6 +84,35 @@ where
             .unwrap()
             .remove()
             .ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+    }
+}
+
+pub(crate) struct CurrentUser(pub User);
+
+#[async_trait]
+impl<B> FromRequest<B> for CurrentUser
+where
+    B: Send,
+{
+    type Rejection = Redirect;
+
+    async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
+        let pool = req.extensions().unwrap().get::<PgPool>().unwrap();
+
+        let user_id = req
+            .extensions()
+            .unwrap()
+            .get::<Session>()
+            .and_then(|session| session.user_id);
+
+        if user_id.is_none() {
+            return Err(Redirect::to("/login".parse().unwrap()));
+        }
+
+        User::find(user_id.unwrap(), pool)
+            .await
+            .map(CurrentUser)
+            .map_err(|_| Redirect::to("/login".parse().unwrap()))
     }
 }
 
