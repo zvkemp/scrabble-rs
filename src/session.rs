@@ -4,7 +4,7 @@ use axum::{async_trait, http};
 use cookie::{Cookie, CookieJar, Key};
 use serde::{Deserialize, Serialize};
 use tower::{Layer, Service};
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::users::User;
 
@@ -97,9 +97,12 @@ pub(crate) struct ExtractCookiesMiddleware<S> {
     service: S,
 }
 
-impl<S, B> Service<http::Request<B>> for ExtractCookiesMiddleware<S>
+#[derive(Debug, Clone)]
+pub(crate) struct ExtractSessionLayer;
+
+impl<S, B> Service<Request<B>> for ExtractCookiesMiddleware<S>
 where
-    S: Service<http::Request<B>>,
+    S: Service<Request<B>>,
 {
     type Response = S::Response;
     type Error = S::Error;
@@ -113,6 +116,7 @@ where
     }
 
     fn call(&mut self, req: Request<B>) -> Self::Future {
+        debug!("ExtractCookiesMiddleware");
         let (mut parts, body) = req.into_parts();
 
         let cookie_header: String = parts
@@ -148,8 +152,42 @@ where
 impl<S> Layer<S> for ExtractCookiesLayer {
     type Service = ExtractCookiesMiddleware<S>;
 
-    fn layer(&self, inner: S) -> Self::Service {
-        ExtractCookiesMiddleware { service: inner }
+    fn layer(&self, service: S) -> Self::Service {
+        ExtractCookiesMiddleware { service }
+    }
+}
+
+impl<S> Layer<S> for ExtractSessionLayer {
+    type Service = ExtractSessionMiddleware<S>;
+
+    fn layer(&self, service: S) -> Self::Service {
+        ExtractSessionMiddleware { service }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ExtractSessionMiddleware<S> {
+    service: S,
+}
+
+impl<S, B> Service<Request<B>> for ExtractSessionMiddleware<S>
+where
+    S: Service<Request<B>>,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = S::Future;
+
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.service.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: Request<B>) -> Self::Future {
+        debug!("ExtractSessionMiddleware");
+        self.service.call(req)
     }
 }
 
