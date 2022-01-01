@@ -70,22 +70,10 @@ where
     type Rejection = StatusCode;
 
     async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        let jar: &CookieJar = req
-            .extensions()
-            .unwrap() // FIXME
-            .get()
-            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-
-        let key = Key::from(SECRET.as_bytes());
-
-        match jar.private(&key).get(SESSION_COOKIE_NAME) {
-            Some(cookie) => {
-                let session: Session = serde_json::from_str(cookie.value()).unwrap();
-
-                Ok(session)
-            }
-            None => Ok(Session::default()),
-        }
+        req.extensions_mut()
+            .unwrap()
+            .remove()
+            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)
     }
 }
 
@@ -187,7 +175,20 @@ where
 
     fn call(&mut self, req: Request<B>) -> Self::Future {
         debug!("ExtractSessionMiddleware");
-        self.service.call(req)
+        let (mut head, body) = req.into_parts();
+
+        let jar: &CookieJar = head.extensions.get().unwrap();
+        // .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        let key = Key::from(SECRET.as_bytes());
+
+        let session: Session = match jar.private(&key).get(SESSION_COOKIE_NAME) {
+            Some(cookie) => serde_json::from_str(cookie.value()).unwrap(),
+            None => Session::default(),
+        };
+
+        head.extensions.insert(session);
+        self.service.call(Request::from_parts(head, body))
     }
 }
 

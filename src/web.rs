@@ -55,6 +55,7 @@ pub fn app(registry: RegistrySender, pool: PgPool) -> Router {
                 .layer(AddExtensionLayer::new(registry))
                 .layer(AddExtensionLayer::new(pool)),
         )
+        // FIXME: use tower-http's ServeFile (https://github.com/tokio-rs/axum/blob/e0082a3f87a266fe6832fcd634b5e6c295daddf6/axum/src/docs/routing/route.md)
         .route("/js/index.js", get(assets::index_js))
         .route("/js/index.js.map", get(assets::index_js_map))
         .route("/css/styles.css", get(assets::css))

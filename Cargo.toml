@@ -25,3 +25,4 @@ reqwest = "*"
 dotenv = "*"
 lazy_static = "*"
 console-subscriber = "*"
+tower-http = { version = "*", features = ["fs"] }
