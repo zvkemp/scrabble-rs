@@ -427,6 +427,7 @@ dependencies = [
  "base64",
  "hkdf",
  "hmac 0.10.1",
+ "percent-encoding",
  "rand",
  "sha2",
  "subtle",
@@ -1734,6 +1735,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "tower",
+ "tower-cookies",
  "tower-http",
  "tracing",
  "tracing-subscriber",
@@ -2382,6 +2384,22 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+]
+
+[[package]]
+name = "tower-cookies"
+version = "0.4.0"
+source = "git+https://github.com/zvkemp/tower-cookies?branch=private-jar#e13fe0f2a8b18d1c66cff15decec6ebead6d3f1c"
+dependencies = [
+ "async-trait",
+ "axum-core",
+ "cookie",
+ "futures-util",
+ "http",
+ "parking_lot",
+ "pin-project-lite",
+ "tower-layer",
+ "tower-service",
 ]
 
 [[package]]

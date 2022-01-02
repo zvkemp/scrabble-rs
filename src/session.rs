@@ -1,34 +1,62 @@
+use axum::async_trait;
 use axum::extract::{FromRequest, RequestParts};
 use axum::http::{Request, StatusCode};
 use axum::response::Redirect;
-use axum::{async_trait, http};
 use cookie::{Cookie, CookieJar, Key};
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use tower::{Layer, Service};
-use tracing::{debug, error, info};
+use tracing::debug;
 
 use crate::users::User;
 
-#[derive(Serialize, Deserialize, Default, Debug)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct Session {
     pub user_id: Option<i64>,
+    #[serde(default = "default_data")]
+    pub data: serde_json::Value,
+    #[serde(default = "new_csrf_token")]
+    csrf_token: String,
 }
 
 impl From<User> for Session {
     fn from(user: User) -> Self {
-        Self {
-            user_id: Some(user.id),
-        }
+        let mut session = Session::new();
+        session.user_id = Some(user.id);
+        session
     }
 }
 
 impl From<&User> for Session {
     fn from(user: &User) -> Self {
+        let mut session = Session::new();
+        session.user_id = Some(user.id);
+        session
+    }
+}
+
+impl Session {
+    pub fn new() -> Self {
         Self {
-            user_id: Some(user.id),
+            user_id: None,
+            data: default_data(),
+            csrf_token: new_csrf_token(),
         }
     }
+}
+
+fn new_csrf_token() -> String {
+    thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(32)
+        .map(char::from)
+        .collect()
+}
+
+fn default_data() -> serde_json::Value {
+    serde_json::json!({})
 }
 
 impl Session {
@@ -105,6 +133,7 @@ where
             .get::<Session>()
             .and_then(|session| session.user_id);
 
+        // FIXME: include login_redirect in session
         if user_id.is_none() {
             return Err(Redirect::to("/login".parse().unwrap()));
         }
@@ -117,72 +146,7 @@ where
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ExtractCookiesLayer;
-
-#[derive(Debug, Clone)]
-pub(crate) struct ExtractCookiesMiddleware<S> {
-    service: S,
-}
-
-#[derive(Debug, Clone)]
 pub(crate) struct ExtractSessionLayer;
-
-impl<S, B> Service<Request<B>> for ExtractCookiesMiddleware<S>
-where
-    S: Service<Request<B>>,
-{
-    type Response = S::Response;
-    type Error = S::Error;
-    type Future = S::Future;
-
-    fn poll_ready(
-        &mut self,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        self.service.poll_ready(cx)
-    }
-
-    fn call(&mut self, req: Request<B>) -> Self::Future {
-        debug!("ExtractCookiesMiddleware");
-        let (mut parts, body) = req.into_parts();
-
-        let cookie_header: String = parts
-            .headers
-            .get(http::header::COOKIE)
-            .and_then(|value| value.to_str().ok())
-            .map(|value| value.to_string())
-            .unwrap_or_default();
-
-        let mut jar = CookieJar::new();
-
-        for cookie in cookie_header.split("; ") {
-            tracing::debug!("attempting to parse {:?}", cookie);
-            if !cookie.is_empty() {
-                jar.add_original(
-                    cookie
-                        .parse()
-                        .map_err(|e| {
-                            error!("{:?}", e);
-                            StatusCode::INTERNAL_SERVER_ERROR
-                        })
-                        .unwrap(), // FIXME
-                )
-            }
-        }
-
-        parts.extensions.insert(jar);
-
-        self.service.call(Request::from_parts(parts, body))
-    }
-}
-
-impl<S> Layer<S> for ExtractCookiesLayer {
-    type Service = ExtractCookiesMiddleware<S>;
-
-    fn layer(&self, service: S) -> Self::Service {
-        ExtractCookiesMiddleware { service }
-    }
-}
 
 impl<S> Layer<S> for ExtractSessionLayer {
     type Service = ExtractSessionMiddleware<S>;
@@ -197,6 +161,10 @@ pub(crate) struct ExtractSessionMiddleware<S> {
     service: S,
 }
 
+// FIXME: it would be nice to detect changes to the session and then set a new cookie when necessary.
+// Can we put an Arc<Session> into the extensions, and then intercept the response
+// to set a new cookie as needed?
+// Cookie middleware should probably handle setting as well
 impl<S, B> Service<Request<B>> for ExtractSessionMiddleware<S>
 where
     S: Service<Request<B>>,
@@ -216,16 +184,17 @@ where
         debug!("ExtractSessionMiddleware");
         let (mut head, body) = req.into_parts();
 
-        let jar: &CookieJar = head.extensions.get().unwrap();
+        let jar: &tower_cookies::Cookies = head.extensions.get().unwrap();
         // .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
         let key = Key::from(SECRET.as_bytes());
 
         let session: Session = match jar.private(&key).get(SESSION_COOKIE_NAME) {
             Some(cookie) => serde_json::from_str(cookie.value()).unwrap(),
-            None => Session::default(),
+            None => Session::new(),
         };
 
+        // let session_hash = session.hash();
         head.extensions.insert(session);
         self.service.call(Request::from_parts(head, body))
     }

@@ -1,25 +1,25 @@
+use std::time::Duration;
+
 use askama::Template;
 use axum::extract::{ws::WebSocketUpgrade, Extension, Form, Path};
-use axum::http::header::SET_COOKIE;
-use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::Json;
 use axum::{AddExtensionLayer, Router};
 use axum_channels::registry::{RegistryMessage, RegistrySender};
 use axum_channels::ConnFormat;
-use cookie::{Cookie, CookieJar, Key};
+use cookie::{Cookie, Key};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::PgPool;
 use tokio::sync::oneshot;
+use tower_cookies::{CookieManagerLayer, Cookies};
 use tracing::debug;
 
-use crate::session::{
-    self, CurrentUser, ExtractCookiesLayer, ExtractCookiesMiddleware, ExtractSessionLayer, Session,
-};
+use crate::session::{self, CurrentUser, ExtractSessionLayer, Session};
 use crate::users;
 use crate::users::User;
 
@@ -50,7 +50,7 @@ pub fn app(registry: RegistrySender, pool: PgPool) -> Router {
         .route("/debug/registry", get(debug_registry))
         .layer(
             tower::ServiceBuilder::new()
-                .layer(ExtractCookiesLayer)
+                .layer(CookieManagerLayer::new())
                 .layer(ExtractSessionLayer)
                 .layer(AddExtensionLayer::new(registry))
                 .layer(AddExtensionLayer::new(pool)),
@@ -59,7 +59,6 @@ pub fn app(registry: RegistrySender, pool: PgPool) -> Router {
         .route("/js/index.js", get(assets::index_js))
         .route("/js/index.js.map", get(assets::index_js_map))
         .route("/css/styles.css", get(assets::css))
-    // .layer(AddExtensionLayer::new(store))
 }
 
 async fn new_login() -> Html<String> {
@@ -72,33 +71,26 @@ async fn new_login() -> Html<String> {
 async fn create_login(
     Form(login): Form<Login>,
     Extension(pool): Extension<PgPool>,
-    Extension(mut jar): Extension<CookieJar>,
-) -> Result<(HeaderMap, Redirect), Error> {
+    Extension(jar): Extension<Cookies>,
+) -> Result<Redirect, Error> {
     let user = User::find_by_username_and_password(&login.username, &login.password, &pool)
         .await
         .map_err(Error::User)?;
 
     let session = Session::from(user);
-    let cookie = Cookie::new(
+    let cookie = Cookie::build(
         session::SESSION_COOKIE_NAME,
         serde_json::to_string(&session).unwrap(),
-    );
+    )
+    .max_age(Duration::from_secs(31536000).try_into().unwrap())
+    .finish();
+
     let key = Key::from(session::SECRET.as_bytes());
+    let private = jar.private(&key);
 
-    jar.private_mut(&key).add(cookie);
+    private.add(cookie);
 
-    // fixme set max age/expiration
-    let set_cookie = jar
-        .delta()
-        .map(|cookie| format!("{}; Max-Age: 31536000", cookie.stripped()))
-        .collect::<Vec<String>>()
-        .join("; ");
-
-    // let headers = axum::response::Headers(vec![(http::header::SET_COOKIE, set_cookie.into())]);
-    let mut headers = HeaderMap::new();
-    headers.insert(SET_COOKIE, HeaderValue::from_str(&set_cookie).unwrap());
-
-    Ok((headers, Redirect::to("/".parse().unwrap())))
+    Ok(Redirect::to("/".parse().unwrap()))
 }
 
 async fn create_registration(
