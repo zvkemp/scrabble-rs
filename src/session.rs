@@ -1,8 +1,15 @@
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
+
 use axum::async_trait;
 use axum::extract::{FromRequest, RequestParts};
 use axum::http::{Request, StatusCode};
-use axum::response::Redirect;
+use axum::response::{Redirect, Response};
 use cookie::{Cookie, CookieJar, Key};
+use parking_lot::Mutex;
+use pin_project::pin_project;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
@@ -149,34 +156,63 @@ where
 pub(crate) struct ExtractSessionLayer;
 
 impl<S> Layer<S> for ExtractSessionLayer {
-    type Service = ExtractSessionMiddleware<S>;
+    type Service = SessionManagerMiddleware<S>;
 
     fn layer(&self, service: S) -> Self::Service {
-        ExtractSessionMiddleware { service }
+        SessionManagerMiddleware { service }
     }
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct ExtractSessionMiddleware<S> {
+pub(crate) struct SessionManagerMiddleware<S> {
     service: S,
+}
+
+// FIXME: make generic for Serialize
+#[derive(Clone, Debug)]
+pub struct SessionManager {
+    inner: Arc<Mutex<Session>>,
+}
+
+#[pin_project]
+pub struct SessionManagerFuture<F> {
+    #[pin]
+    wrapped: F,
+    session: SessionManager,
+}
+
+impl<F, B, E> Future for SessionManagerFuture<F>
+where
+    F: Future<Output = Result<Response<B>, E>>,
+{
+    type Output = F::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+        let result = match this.wrapped.poll(cx) {
+            Poll::Ready(result) => result,
+            Poll::Pending => return Poll::Pending,
+        };
+
+        debug!("hello from the session manager future");
+
+        Poll::Ready(result)
+    }
 }
 
 // FIXME: it would be nice to detect changes to the session and then set a new cookie when necessary.
 // Can we put an Arc<Session> into the extensions, and then intercept the response
 // to set a new cookie as needed?
 // Cookie middleware should probably handle setting as well
-impl<S, B> Service<Request<B>> for ExtractSessionMiddleware<S>
+impl<S, B, Res> Service<Request<B>> for SessionManagerMiddleware<S>
 where
-    S: Service<Request<B>>,
+    S: Service<Request<B>, Response = Response<Res>>,
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future = S::Future;
+    type Future = SessionManagerFuture<S::Future>;
 
-    fn poll_ready(
-        &mut self,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.service.poll_ready(cx)
     }
 
@@ -194,9 +230,14 @@ where
             None => Session::new(),
         };
 
-        // let session_hash = session.hash();
-        head.extensions.insert(session);
-        self.service.call(Request::from_parts(head, body))
+        let session_manager = SessionManager::new(session);
+
+        head.extensions.insert(session_manager.clone());
+
+        SessionManagerFuture {
+            wrapped: self.service.call(Request::from_parts(head, body)),
+            session: session_manager,
+        }
     }
 }
 
@@ -225,5 +266,12 @@ mod tests {
 
         dbg!(encrypted.to_string());
         dbg!(decrypted.to_string());
+    }
+}
+impl SessionManager {
+    pub(crate) fn new(session: Session) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(session)),
+        }
     }
 }
