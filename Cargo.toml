@@ -26,6 +26,6 @@ dotenv = "*"
 lazy_static = "*"
 console-subscriber = "*"
 tower-http = { version = "*", features = ["fs"] }
-tower-cookies = { git = "https://github.com/zvkemp/tower-cookies", branch = "private-jar", features = ["private"] }
+tower-cookies = { version = "^0.4.1", features = ["private"] }
 parking_lot = "*"
 pin-project = "*"

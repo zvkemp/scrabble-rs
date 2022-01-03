@@ -2390,8 +2390,9 @@ dependencies = [
 
 [[package]]
 name = "tower-cookies"
-version = "0.4.0"
-source = "git+https://github.com/zvkemp/tower-cookies?branch=private-jar#e13fe0f2a8b18d1c66cff15decec6ebead6d3f1c"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba3a3bb9d1cd688ddad31f5649f1fba3a512234997b0f7c87422ec80df4d6945"
 dependencies = [
  "async-trait",
  "axum-core",
