@@ -61,9 +61,9 @@ pub fn app(registry: RegistrySender, pool: PgPool) -> Router {
         .route("/css/styles.css", get(assets::css))
 }
 
-async fn new_login() -> Html<String> {
+async fn new_login(Extension(session): Extension<SessionManager>) -> Html<String> {
     let template = NewLoginTemplate {
-        csrf_token: "FIXME",
+        csrf_token: session.csrf_token(),
     };
     Html(template.render().unwrap())
 }
@@ -77,22 +77,11 @@ async fn create_login(
         .await
         .map_err(Error::User)?;
 
-    session.inner.lock().user_id = Some(user.id);
+    session.set_user_id(Some(user.id));
 
-    // let session = Session::from(user);
-    // let cookie = Cookie::build(
-    //     session::SESSION_COOKIE_NAME,
-    //     serde_json::to_string(&session).unwrap(),
-    // )
-    // .max_age(Duration::from_secs(31536000).try_into().unwrap())
-    // .finish();
+    let location = session.take_login_redirect().unwrap_or_else(|| "/".into());
 
-    // let key = Key::from(session::SECRET.as_bytes());
-    // let private = jar.private(&key);
-
-    // private.add(cookie);
-
-    Ok(Redirect::to("/".parse().unwrap()))
+    Ok(Redirect::to(location.parse().unwrap()))
 }
 
 async fn create_registration(
@@ -226,12 +215,12 @@ struct NewRegistrationTemplate<'a> {
 
 #[derive(Template)]
 #[template(path = "login.html")]
-struct NewLoginTemplate<'a> {
-    csrf_token: &'a str,
+struct NewLoginTemplate {
+    csrf_token: String,
 }
 
 async fn index(Extension(session): Extension<SessionManager>) -> Html<String> {
-    let info = format!("{:?}", session.inner.lock());
+    let info = format!("{:#?}\n{}", session, session.current_hash());
     let template = IndexTemplate {
         info: info.as_str(),
     };

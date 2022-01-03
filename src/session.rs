@@ -1,3 +1,4 @@
+use std::collections::hash_map::DefaultHasher;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -6,7 +7,7 @@ use std::time::Duration;
 
 use axum::async_trait;
 use axum::extract::{FromRequest, RequestParts};
-use axum::http::{Request, StatusCode};
+use axum::http::{Request, StatusCode, Uri};
 use axum::response::{Redirect, Response};
 use cookie::{Cookie, CookieJar, Key};
 use parking_lot::Mutex;
@@ -16,19 +17,20 @@ use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgPool;
+use std::hash::{Hash, Hasher};
 use tower::{Layer, Service};
 use tower_cookies::Cookies;
 use tracing::debug;
 
 use crate::users::User;
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[derive(Hash, Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct Session {
     pub user_id: Option<i64>,
-    #[serde(default = "default_data")]
-    pub data: serde_json::Value,
     #[serde(default = "new_csrf_token")]
     csrf_token: String,
+    #[serde(default)]
+    login_redirect: Option<String>,
 }
 
 impl From<User> for Session {
@@ -51,8 +53,8 @@ impl Session {
     pub fn new() -> Self {
         Self {
             user_id: None,
-            data: default_data(),
             csrf_token: new_csrf_token(),
+            login_redirect: None,
         }
     }
 
@@ -67,10 +69,6 @@ fn new_csrf_token() -> String {
         .take(32)
         .map(char::from)
         .collect()
-}
-
-fn default_data() -> serde_json::Value {
-    serde_json::json!({})
 }
 
 impl Session {
@@ -141,22 +139,24 @@ where
     async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
         let pool = req.extensions().unwrap().get::<PgPool>().unwrap();
 
-        let user_id = req
-            .extensions()
-            .unwrap()
-            .get::<Session>()
-            .and_then(|session| session.user_id);
+        let session = req.extensions().unwrap().get::<SessionManager>().unwrap();
+        let user_id = session.user_id();
 
-        // FIXME: include login_redirect in session
         if user_id.is_none() {
-            return Err(Redirect::to("/login".parse().unwrap()));
+            return Err(redirect_to_login(req, &session));
         }
 
         User::find(user_id.unwrap(), pool)
             .await
             .map(CurrentUser)
-            .map_err(|_| Redirect::to("/login".parse().unwrap()))
+            .map_err(|_| redirect_to_login(req, &session))
     }
+}
+
+fn redirect_to_login<B>(req: &RequestParts<B>, session: &SessionManager) -> Redirect {
+    session.set_login_redirect(Some(req.uri().to_string()));
+
+    Redirect::temporary("/login".parse().unwrap())
 }
 
 #[derive(Debug, Clone)]
@@ -179,14 +179,8 @@ pub(crate) struct SessionManagerMiddleware<S> {
 // FIXME: track changes
 #[derive(Clone, Debug)]
 pub struct SessionManager {
-    pub inner: Arc<Mutex<Session>>,
-}
-
-impl SessionManager {
-    pub fn as_json(&self) -> serde_json::Value {
-        let inner = self.inner.lock();
-        inner.as_json()
-    }
+    inner: Arc<Mutex<Session>>,
+    hash: u64,
 }
 
 #[pin_project]
@@ -210,16 +204,19 @@ where
             Poll::Pending => return Poll::Pending,
         }?;
 
-        let cookie = Cookie::build(
-            SESSION_COOKIE_NAME,
-            serde_json::to_string(&this.session.as_json()).unwrap(),
-        )
-        .max_age(Duration::from_secs(31536000).try_into().unwrap())
-        .finish();
-        // FIXME: only if changed
-        let jar = this.cookies.private(key());
+        if this.session.has_changed() {
+            let cookie = Cookie::build(
+                SESSION_COOKIE_NAME,
+                serde_json::to_string(&this.session.as_json()).unwrap(),
+            )
+            .max_age(Duration::from_secs(31536000).try_into().unwrap())
+            .path("/")
+            .finish();
+            // FIXME: only if changed
+            let jar = this.cookies.private(key());
 
-        jar.add(dbg!(cookie));
+            jar.add(cookie);
+        }
 
         Poll::Ready(Ok(result))
     }
@@ -238,7 +235,6 @@ where
     }
 
     fn call(&mut self, req: Request<B>) -> Self::Future {
-        debug!("ExtractSessionMiddleware");
         let (mut head, body) = req.into_parts();
 
         let cookies: Cookies = head.extensions.get().cloned().unwrap();
@@ -246,12 +242,19 @@ where
 
         let key = Key::from(SECRET.as_bytes());
 
+        let mut session_was_new = false;
         let session: Session = match cookies.private(&key).get(SESSION_COOKIE_NAME) {
             Some(cookie) => serde_json::from_str(cookie.value()).unwrap(),
-            None => Session::new(),
+            None => {
+                session_was_new = true;
+                Session::new()
+            }
         };
 
-        let session_manager = SessionManager::new(session);
+        let mut session_manager = SessionManager::new(session);
+        if session_was_new {
+            session_manager.hash = 0; // force cookie to be set
+        }
 
         head.extensions.insert(session_manager.clone());
 
@@ -292,8 +295,52 @@ mod tests {
 }
 impl SessionManager {
     pub(crate) fn new(session: Session) -> Self {
+        let hash = Self::hash_session(&session);
+
         Self {
             inner: Arc::new(Mutex::new(session)),
+            hash,
         }
+    }
+
+    pub fn hash_session(session: &Session) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        session.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    pub fn as_json(&self) -> serde_json::Value {
+        let inner = self.inner.lock();
+        inner.as_json()
+    }
+
+    pub(crate) fn set_user_id(&self, id: Option<i64>) {
+        let mut inner = self.inner.lock();
+        inner.user_id = id;
+    }
+
+    pub(crate) fn user_id(&self) -> Option<i64> {
+        self.inner.lock().user_id
+    }
+
+    pub(crate) fn current_hash(&self) -> u64 {
+        let locked = self.inner.lock();
+        Self::hash_session(&locked)
+    }
+
+    pub(crate) fn has_changed(&self) -> bool {
+        self.current_hash() != self.hash
+    }
+
+    pub(crate) fn set_login_redirect(&self, login_redirect: Option<String>) {
+        self.inner.lock().login_redirect = login_redirect;
+    }
+
+    pub(crate) fn take_login_redirect(&self) -> Option<String> {
+        self.inner.lock().login_redirect.take()
+    }
+
+    pub(crate) fn csrf_token(&self) -> String {
+        self.inner.lock().csrf_token.clone()
     }
 }
