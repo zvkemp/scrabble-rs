@@ -2,6 +2,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use axum::async_trait;
 use axum::extract::{FromRequest, RequestParts};
@@ -13,8 +14,10 @@ use pin_project::pin_project;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sqlx::PgPool;
 use tower::{Layer, Service};
+use tower_cookies::Cookies;
 use tracing::debug;
 
 use crate::users::User;
@@ -51,6 +54,10 @@ impl Session {
             data: default_data(),
             csrf_token: new_csrf_token(),
         }
+    }
+
+    pub fn as_json(&self) -> serde_json::Value {
+        json!(self)
     }
 }
 
@@ -153,9 +160,9 @@ where
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ExtractSessionLayer;
+pub(crate) struct SessionManagerLayer;
 
-impl<S> Layer<S> for ExtractSessionLayer {
+impl<S> Layer<S> for SessionManagerLayer {
     type Service = SessionManagerMiddleware<S>;
 
     fn layer(&self, service: S) -> Self::Service {
@@ -169,9 +176,17 @@ pub(crate) struct SessionManagerMiddleware<S> {
 }
 
 // FIXME: make generic for Serialize
+// FIXME: track changes
 #[derive(Clone, Debug)]
 pub struct SessionManager {
-    inner: Arc<Mutex<Session>>,
+    pub inner: Arc<Mutex<Session>>,
+}
+
+impl SessionManager {
+    pub fn as_json(&self) -> serde_json::Value {
+        let inner = self.inner.lock();
+        inner.as_json()
+    }
 }
 
 #[pin_project]
@@ -179,6 +194,7 @@ pub struct SessionManagerFuture<F> {
     #[pin]
     wrapped: F,
     session: SessionManager,
+    cookies: Cookies,
 }
 
 impl<F, B, E> Future for SessionManagerFuture<F>
@@ -192,18 +208,23 @@ where
         let result = match this.wrapped.poll(cx) {
             Poll::Ready(result) => result,
             Poll::Pending => return Poll::Pending,
-        };
+        }?;
 
-        debug!("hello from the session manager future");
+        let cookie = Cookie::build(
+            SESSION_COOKIE_NAME,
+            serde_json::to_string(&this.session.as_json()).unwrap(),
+        )
+        .max_age(Duration::from_secs(31536000).try_into().unwrap())
+        .finish();
+        // FIXME: only if changed
+        let jar = this.cookies.private(key());
 
-        Poll::Ready(result)
+        jar.add(dbg!(cookie));
+
+        Poll::Ready(Ok(result))
     }
 }
 
-// FIXME: it would be nice to detect changes to the session and then set a new cookie when necessary.
-// Can we put an Arc<Session> into the extensions, and then intercept the response
-// to set a new cookie as needed?
-// Cookie middleware should probably handle setting as well
 impl<S, B, Res> Service<Request<B>> for SessionManagerMiddleware<S>
 where
     S: Service<Request<B>, Response = Response<Res>>,
@@ -220,12 +241,12 @@ where
         debug!("ExtractSessionMiddleware");
         let (mut head, body) = req.into_parts();
 
-        let jar: &tower_cookies::Cookies = head.extensions.get().unwrap();
+        let cookies: Cookies = head.extensions.get().cloned().unwrap();
         // .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
         let key = Key::from(SECRET.as_bytes());
 
-        let session: Session = match jar.private(&key).get(SESSION_COOKIE_NAME) {
+        let session: Session = match cookies.private(&key).get(SESSION_COOKIE_NAME) {
             Some(cookie) => serde_json::from_str(cookie.value()).unwrap(),
             None => Session::new(),
         };
@@ -237,6 +258,7 @@ where
         SessionManagerFuture {
             wrapped: self.service.call(Request::from_parts(head, body)),
             session: session_manager,
+            cookies,
         }
     }
 }

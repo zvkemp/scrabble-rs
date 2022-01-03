@@ -19,7 +19,7 @@ use tokio::sync::oneshot;
 use tower_cookies::{CookieManagerLayer, Cookies};
 use tracing::debug;
 
-use crate::session::{self, CurrentUser, ExtractSessionLayer, Session};
+use crate::session::{self, CurrentUser, SessionManager, SessionManagerLayer};
 use crate::users;
 use crate::users::User;
 
@@ -51,7 +51,7 @@ pub fn app(registry: RegistrySender, pool: PgPool) -> Router {
         .layer(
             tower::ServiceBuilder::new()
                 .layer(CookieManagerLayer::new())
-                .layer(ExtractSessionLayer)
+                .layer(SessionManagerLayer)
                 .layer(AddExtensionLayer::new(registry))
                 .layer(AddExtensionLayer::new(pool)),
         )
@@ -71,24 +71,26 @@ async fn new_login() -> Html<String> {
 async fn create_login(
     Form(login): Form<Login>,
     Extension(pool): Extension<PgPool>,
-    Extension(jar): Extension<Cookies>,
+    Extension(session): Extension<SessionManager>,
 ) -> Result<Redirect, Error> {
     let user = User::find_by_username_and_password(&login.username, &login.password, &pool)
         .await
         .map_err(Error::User)?;
 
-    let session = Session::from(user);
-    let cookie = Cookie::build(
-        session::SESSION_COOKIE_NAME,
-        serde_json::to_string(&session).unwrap(),
-    )
-    .max_age(Duration::from_secs(31536000).try_into().unwrap())
-    .finish();
+    session.inner.lock().user_id = Some(user.id);
 
-    let key = Key::from(session::SECRET.as_bytes());
-    let private = jar.private(&key);
+    // let session = Session::from(user);
+    // let cookie = Cookie::build(
+    //     session::SESSION_COOKIE_NAME,
+    //     serde_json::to_string(&session).unwrap(),
+    // )
+    // .max_age(Duration::from_secs(31536000).try_into().unwrap())
+    // .finish();
 
-    private.add(cookie);
+    // let key = Key::from(session::SECRET.as_bytes());
+    // let private = jar.private(&key);
+
+    // private.add(cookie);
 
     Ok(Redirect::to("/".parse().unwrap()))
 }
@@ -190,7 +192,7 @@ async fn ws_handler(
 }
 
 async fn show_game(Path(game_id): Path<String>, CurrentUser(user): CurrentUser) -> Html<String> {
-    let session = Session::from(&user);
+    let session = session::Session::from(&user);
     let token = session.token();
 
     let template = GameTemplate {
@@ -228,8 +230,8 @@ struct NewLoginTemplate<'a> {
     csrf_token: &'a str,
 }
 
-async fn index(session: Option<Session>) -> Html<String> {
-    let info = format!("{:?}", session);
+async fn index(Extension(session): Extension<SessionManager>) -> Html<String> {
+    let info = format!("{:?}", session.inner.lock());
     let template = IndexTemplate {
         info: info.as_str(),
     };
