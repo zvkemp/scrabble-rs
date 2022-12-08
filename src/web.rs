@@ -45,6 +45,7 @@ pub fn app(registry: RegistrySender, pool: PgPool) -> Router {
         .route("/login", get(new_login))
         .route("/login", post(create_login))
         .route("/simple/websocket", get(ws_handler))
+        .route("/broker", get(broker_handler))
         .route("/play/:game_id", get(show_game))
         .route("/rand_game", get(rand_game))
         .route("/debug/registry", get(debug_registry))
@@ -178,6 +179,13 @@ async fn ws_handler(
     ws.on_upgrade(move |socket| {
         axum_channels::handle_connect(socket, ConnFormat::Phoenix, registry)
     })
+}
+
+async fn broker_handler(
+    ws: WebSocketUpgrade,
+    Extension(registry): Extension<RegistrySender>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| axum_channels::handle_broker_connect(socket, registry))
 }
 
 async fn show_game(Path(game_id): Path<String>, CurrentUser(user): CurrentUser) -> Html<String> {

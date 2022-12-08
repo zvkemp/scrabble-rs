@@ -1225,15 +1225,19 @@ impl TryFrom<serde_json::Value> for Turn {
                 tiles: map
                     .iter()
                     .map(|(string, char)| {
-                        (
-                            // FIXME: this sometimes panics on join (???) with Invalid Digit
-                            string.parse().unwrap(),
-                            char.as_str().unwrap().parse().unwrap(),
-                        )
+                        debug!("TryFrom<serde_json::Value> for Turn string={}", string);
+                        string
+                            .parse()
+                            .map_err(|_| Error::TileParse)
+                            .and_then(|idx| {
+                                char.as_str()
+                                    .ok_or(Error::TileParse)
+                                    .and_then(|str| str.parse().and_then(|t| Ok((idx, t))))
+                            })
                     })
-                    .collect::<Vec<(usize, Tile)>>(),
+                    .collect::<Result<Vec<(usize, Tile)>, _>>()?,
             }),
-            _ => panic!("fixme"),
+            _ => Err(Error::TileParse),
         }
     }
 }
@@ -1441,7 +1445,7 @@ mod test {
     }
 
     fn test_game() -> Game {
-        let channel_id = "game:hello".parse().unwrap();
+        let channel_id = "game:hello".into();
         Game::new(channel_id)
     }
 

@@ -28,7 +28,8 @@ mod web;
 #[tokio::main]
 async fn main() {
     let _ = dotenv::dotenv();
-    console_subscriber::Builder::default().init();
+    // console_subscriber::Builder::default().init();
+    tracing_subscriber::fmt::init();
 
     dictionary::dictionary().await;
 
@@ -41,15 +42,26 @@ async fn main() {
         .unwrap();
 
     let mut registry = Registry::default();
-    let game_channel = GameChannel::new(pool.clone(), "_template_".parse().unwrap());
+    let game_channel = GameChannel::new(pool.clone(), "_template_".into());
     registry.register_template("game", game_channel);
 
-    let (registry_sender, _registry_handle) = registry.start();
+    let mut peers = vec![];
+
+    if std::env::var("PEER").is_ok() {
+        peers.push(SocketAddr::new(
+            "0.0.0.0".parse().unwrap(),
+            "3000".parse().unwrap(),
+        ));
+    }
+
+    let (registry_sender, _registry_handle) = registry.start_clustered(peers).await;
 
     let app = web::app(registry_sender, pool);
 
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
     let socket_addr = SocketAddr::new("0.0.0.0".parse().unwrap(), port.parse().unwrap());
+
+    println!("{:?}", socket_addr);
 
     axum::Server::bind(&socket_addr)
         .serve(app.into_make_service())
@@ -76,6 +88,7 @@ impl GameChannel {
     }
 
     fn propose(&self, payload: serde_json::Value) -> Result<TurnScore, scrabble::Error> {
+        debug!("propose payload={:?}", payload);
         let turn = payload.try_into().map_err(|_| scrabble::Error::TurnParse)?;
         Ok(self.game.as_ref().unwrap().propose(&turn))
     }
@@ -87,6 +100,7 @@ impl GameChannel {
         player_index: usize,
         player: Player,
     ) -> Result<Option<String>, scrabble::Error> {
+        debug!("payload={:?}", payload);
         let turn: Turn = payload.try_into()?;
         let game = self.game.as_mut().unwrap();
 
