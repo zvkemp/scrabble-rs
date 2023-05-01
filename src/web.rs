@@ -1,12 +1,12 @@
 use std::time::Duration;
 
 use askama::Template;
-use axum::extract::{ws::WebSocketUpgrade, Extension, Form, Path};
+use axum::extract::{ws::WebSocketUpgrade, Form, Path};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::Json;
-use axum::{AddExtensionLayer, Router};
+use axum::{Extension, Router};
 use axum_channels::registry::{RegistryMessage, RegistrySender};
 use axum_channels::ConnFormat;
 use cookie::{Cookie, Key};
@@ -53,8 +53,8 @@ pub fn app(registry: RegistrySender, pool: PgPool) -> Router {
             tower::ServiceBuilder::new()
                 .layer(CookieManagerLayer::new())
                 .layer(SessionManagerLayer)
-                .layer(AddExtensionLayer::new(registry))
-                .layer(AddExtensionLayer::new(pool)),
+                .layer(Extension(registry))
+                .layer(Extension(pool)),
         )
         // FIXME: use tower-http's ServeFile (https://github.com/tokio-rs/axum/blob/e0082a3f87a266fe6832fcd634b5e6c295daddf6/axum/src/docs/routing/route.md)
         .route("/js/index.js", get(assets::index_js))
@@ -70,9 +70,9 @@ async fn new_login(Extension(session): Extension<SessionManager>) -> Html<String
 }
 
 async fn create_login(
-    Form(login): Form<Login>,
     Extension(pool): Extension<PgPool>,
     Extension(session): Extension<SessionManager>,
+    Form(login): Form<Login>,
 ) -> Result<Redirect, Error> {
     let user = User::find_by_username_and_password(&login.username, &login.password, &pool)
         .await
@@ -82,12 +82,12 @@ async fn create_login(
 
     let location = session.take_login_redirect().unwrap_or_else(|| "/".into());
 
-    Ok(Redirect::to(location.parse().unwrap()))
+    Ok(Redirect::to(location.as_str()))
 }
 
 async fn create_registration(
-    Form(registration): Form<Registration>,
     Extension(pool): Extension<PgPool>,
+    Form(registration): Form<Registration>,
 ) -> Result<Html<String>, Error> {
     debug!("create_registration");
     // FIXME: verify CSRF token
@@ -98,6 +98,7 @@ async fn create_registration(
     Ok(Html(format!("user_id={}", id)))
 }
 
+#[axum_macros::debug_handler]
 async fn debug_registry(_: CurrentUser, Extension(registry): Extension<RegistrySender>) -> String {
     let (tx, rx) = oneshot::channel();
     registry.send(RegistryMessage::Debug(tx));
@@ -242,7 +243,7 @@ async fn rand_game(_: CurrentUser) -> Redirect {
         .map(char::from)
         .collect();
 
-    Redirect::to(format!("/play/{}", rand_string).parse().unwrap())
+    Redirect::to(&format!("/play/{}", rand_string))
 }
 
 mod assets {

@@ -6,7 +6,8 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use axum::async_trait;
-use axum::extract::{FromRequest, RequestParts};
+use axum::extract::{FromRequest, FromRequestParts};
+use axum::http::request::Parts;
 use axum::http::{Request, StatusCode, Uri};
 use axum::response::{Redirect, Response};
 use cookie::{Cookie, CookieJar, Key};
@@ -113,15 +114,14 @@ fn secret_key_base() -> &'static [u8] {
 }
 
 #[async_trait]
-impl<B> FromRequest<B> for Session
+impl<S> FromRequestParts<S> for Session
 where
-    B: Send,
+    S: Send + Sync,
 {
     type Rejection = StatusCode;
 
-    async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        req.extensions_mut()
-            .unwrap()
+    async fn from_request_parts(req: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        req.extensions
             .remove()
             .ok_or(StatusCode::INTERNAL_SERVER_ERROR)
     }
@@ -130,33 +130,31 @@ where
 pub(crate) struct CurrentUser(pub User);
 
 #[async_trait]
-impl<B> FromRequest<B> for CurrentUser
+impl<State> FromRequestParts<State> for CurrentUser
 where
-    B: Send,
+    State: Send + Sync,
 {
     type Rejection = Redirect;
 
-    async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        let pool = req.extensions().unwrap().get::<PgPool>().unwrap();
+    async fn from_request_parts(req: &mut Parts, state: &State) -> Result<Self, Self::Rejection> {
+        let pool = req.extensions.get::<PgPool>().unwrap();
 
-        let session = req.extensions().unwrap().get::<SessionManager>().unwrap();
-        let user_id = session.user_id();
+        let session = req.extensions.get::<SessionManager>().unwrap();
+        match session.user_id() {
+            None => Err(redirect_to_login(req.uri.to_string(), &session)),
 
-        if user_id.is_none() {
-            return Err(redirect_to_login(req, &session));
+            Some(user_id) => User::find(user_id, pool)
+                .await
+                .map(CurrentUser)
+                .map_err(|_| redirect_to_login(req.uri.to_string(), &session)),
         }
-
-        User::find(user_id.unwrap(), pool)
-            .await
-            .map(CurrentUser)
-            .map_err(|_| redirect_to_login(req, &session))
     }
 }
 
-fn redirect_to_login<B>(req: &RequestParts<B>, session: &SessionManager) -> Redirect {
-    session.set_login_redirect(Some(req.uri().to_string()));
+fn redirect_to_login(uri: String, session: &SessionManager) -> Redirect {
+    session.set_login_redirect(Some(uri));
 
-    Redirect::temporary("/login".parse().unwrap())
+    Redirect::temporary("/login")
 }
 
 #[derive(Debug, Clone)]

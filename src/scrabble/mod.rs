@@ -490,6 +490,7 @@ impl Game {
             board: &self.board,
             turn,
         };
+
         overlay.validate_words().await?;
         let score = overlay.score();
         self.scores[self.player_index].push(score);
@@ -748,20 +749,20 @@ impl std::fmt::Display for Error {
 impl Board {
     pub fn standard() -> Result<Self, Error> {
         let board_string = "
-            3w .  .  2l .  .  .  3w .  .  .  2l .  .  3w 
-            .  2w .  .  .  3l .  .  .  3l .  .  .  2w .   
-            .  .  2w .  .  .  2l .  2l .  .  .  2w .  .   
-            2l .  .  2w .  .  .  2l .  .  .  2w .  .  2l  
-            .  .  .  .  2w .  .  .  .  .  2w .  .  .  .  
-            .  3l .  .  .  3l .  .  .  3l .  .  .  3l .   
-            .  .  2l .  .  .  2l .  2l .  .  .  2l .  .   
-            3w .  .  2l .  .  .  2w .  .  .  2l .  .  3w  
-            .  .  2l .  .  .  2l .  2l .  .  .  2l .  .   
-            .  3l .  .  .  3l .  .  .  3l .  .  .  3l . 
-            .  .  .  .  2w .  .  .  .  .  2w .  .  .  .   
-            2l .  .  2w .  .  .  2l .  .  .  2w .  .  2l  
-            .  .  2w .  .  .  2l .  2l .  .  .  2w .  .   
-            .  2w .  .  .  3l .  .  .  3l .  .  .  2w .   
+            3w .  .  2l .  .  .  3w .  .  .  2l .  .  3w
+            .  2w .  .  .  3l .  .  .  3l .  .  .  2w .
+            .  .  2w .  .  .  2l .  2l .  .  .  2w .  .
+            2l .  .  2w .  .  .  2l .  .  .  2w .  .  2l
+            .  .  .  .  2w .  .  .  .  .  2w .  .  .  .
+            .  3l .  .  .  3l .  .  .  3l .  .  .  3l .
+            .  .  2l .  .  .  2l .  2l .  .  .  2l .  .
+            3w .  .  2l .  .  .  2w .  .  .  2l .  .  3w
+            .  .  2l .  .  .  2l .  2l .  .  .  2l .  .
+            .  3l .  .  .  3l .  .  .  3l .  .  .  3l .
+            .  .  .  .  2w .  .  .  .  .  2w .  .  .  .
+            2l .  .  2w .  .  .  2l .  .  .  2w .  .  2l
+            .  .  2w .  .  .  2l .  2l .  .  .  2w .  .
+            .  2w .  .  .  3l .  .  .  3l .  .  .  2w .
             3w .  .  2l .  .  .  3w .  .  .  2l .  .  3w
         ";
 
@@ -907,6 +908,7 @@ pub trait GetChar {
     fn get_char(&self, index: usize) -> Option<char>;
 }
 
+#[derive(Debug)]
 struct Overlay<'a> {
     board: &'a Board,
     turn: &'a Turn,
@@ -917,6 +919,7 @@ impl Overlay<'_> {
         let original: Vec<Word> = self.board.words().collect();
         let horizontal = Words::horizontal(self);
         let vertical = Words::vertical(self);
+
         let mut overlay_words: Vec<Word> = horizontal.chain(vertical).collect();
 
         for word in original {
@@ -1087,6 +1090,11 @@ impl<S: GetChar> Iterator for Words<'_, S> {
 
                 // end of row
                 if self.cursor % BOARD_SIZE == 0 {
+                    break;
+                }
+
+                // end of board
+                if self.cursor >= INDEX_OVERFLOW {
                     break;
                 }
             }
@@ -1321,20 +1329,20 @@ mod test {
 
     fn test_board_a() -> &'static str {
         "
-            3w .  .  2l .  .  .  3w .  .  .  2l .  H  I 
-            .  2w .  .  .  3l .  .  .  3l .  .  .  2w .   
-            .  .  2w .  .  .  2l .  2l .  .  .  2w .  .   
-            2l .  .  2w .  .  .  2l .  .  .  2w .  .  2l  
-            .  .  .  .  2w .  .  .  .  .  2w .  .  .  .  
-            .  3l .  .  .  3l .  .  .  3l .  .  .  3l .   
-            .  .  2l .  .  .  2l .  2l .  .  .  2l .  .   
-            3w .  .  2l .  .  .  A  M  P  L  E  .  .  3w  
-            .  .  2l .  .  .  2l .  A  A  .  .  2l .  .   
-            .  3l .  .  .  H  A  P  P  Y  .  .  .  3l . 
-            .  .  .  .  2w .  .  .  .  E  2w .  .  .  .   
-            2l .  .  2w .  .  .  2l .  R  .  2w .  .  O  
-            .  .  2w .  .  .  2l .  2l .  .  .  2w .  O   
-            .  2w .  .  .  3l .  .  .  3l .  .  .  2w Z   
+            3w .  .  2l .  .  .  3w .  .  .  2l .  H  I
+            .  2w .  .  .  3l .  .  .  3l .  .  .  2w .
+            .  .  2w .  .  .  2l .  2l .  .  .  2w .  .
+            2l .  .  2w .  .  .  2l .  .  .  2w .  .  2l
+            .  .  .  .  2w .  .  .  .  .  2w .  .  .  .
+            .  3l .  .  .  3l .  .  .  3l .  .  .  3l .
+            .  .  2l .  .  .  2l .  2l .  .  .  2l .  .
+            3w .  .  2l .  .  .  A  M  P  L  E  .  .  3w
+            .  .  2l .  .  .  2l .  A  A  .  .  2l .  .
+            .  3l .  .  .  H  A  P  P  Y  .  .  .  3l .
+            .  .  .  .  2w .  .  .  .  E  2w .  .  .  .
+            2l .  .  2w .  .  .  2l .  R  .  2w .  .  O
+            .  .  2w .  .  .  2l .  2l .  .  .  2w .  O
+            .  2w .  .  .  3l .  .  .  3l .  .  .  2w Z
             3w .  .  2l .  .  .  3w .  .  .  2l .  .  E
         "
     }
@@ -1683,5 +1691,264 @@ mod test {
                 scores: vec![("QUAD".to_string(), 48)]
             }
         );
+    }
+
+    #[test]
+    fn test_bugfix_vertical_overflow() {
+        use Square::LetterBonus;
+        use Square::WordBonus;
+        use Tile::Blank;
+        use Tile::Char;
+
+        let board = Board(vec![
+            Square::Tile(Char('Z')),
+            Square::Tile(Char('A')),
+            Square::Blank,
+            Square::Tile(Char('D')),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            WordBonus(3),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            LetterBonus(2),
+            Square::Blank,
+            Square::Blank,
+            WordBonus(3),
+            Square::Tile(Char('O')),
+            Square::Tile(Char('S')),
+            Square::Blank,
+            Square::Tile(Char('O')),
+            Square::Blank,
+            LetterBonus(3),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            LetterBonus(3),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            WordBonus(2),
+            Square::Blank,
+            Square::Tile(Char('N')),
+            Square::Blank,
+            Square::Tile(Blank(Some('R'))),
+            Square::Tile(Char('E')),
+            Square::Blank,
+            Square::Blank,
+            LetterBonus(2),
+            Square::Blank,
+            LetterBonus(2),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            WordBonus(2),
+            Square::Blank,
+            Square::Blank,
+            Square::Tile(Char('A')),
+            Square::Tile(Char('R')),
+            Square::Tile(Char('E')),
+            Square::Tile(Char('S')),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            LetterBonus(2),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            Square::Tile(Char('C')),
+            Square::Blank,
+            Square::Blank,
+            LetterBonus(2),
+            Square::Blank,
+            Square::Tile(Char('I')),
+            Square::Tile(Char('N')),
+            Square::Blank,
+            WordBonus(2),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            WordBonus(2),
+            Square::Tile(Char('U')),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            Square::Tile(Char('F')),
+            Square::Tile(Char('A')),
+            Square::Blank,
+            Square::Blank,
+            LetterBonus(3),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            LetterBonus(3),
+            Square::Blank,
+            Square::Tile(Char('T')),
+            Square::Blank,
+            LetterBonus(3),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            Square::Tile(Char('I')),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            LetterBonus(2),
+            Square::Blank,
+            LetterBonus(2),
+            Square::Blank,
+            Square::Blank,
+            Square::Tile(Char('E')),
+            LetterBonus(2),
+            Square::Blank,
+            Square::Blank,
+            Square::Tile(Char('P')),
+            Square::Tile(Char('A')),
+            Square::Tile(Char('L')),
+            Square::Tile(Char('P')),
+            Square::Tile(Char('S')),
+            Square::Blank,
+            Square::Blank,
+            Square::Tile(Char('B')),
+            Square::Tile(Char('I')),
+            Square::Tile(Char('T')),
+            Square::Tile(Char('T')),
+            Square::Tile(Char('Y')),
+            Square::Blank,
+            Square::Blank,
+            WordBonus(3),
+            Square::Blank,
+            Square::Blank,
+            Square::Tile(Char('E')),
+            Square::Blank,
+            Square::Tile(Char('H')),
+            Square::Blank,
+            Square::Tile(Char('R')),
+            Square::Tile(Char('E')),
+            Square::Tile(Char('F')),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            LetterBonus(2),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            LetterBonus(3),
+            Square::Tile(Char('D')),
+            Square::Tile(Char('R')),
+            Square::Tile(Char('I')),
+            Square::Tile(Char('V')),
+            Square::Tile(Char('E')),
+            Square::Blank,
+            Square::Blank,
+            LetterBonus(3),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            LetterBonus(3),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            Square::Tile(Char('L')),
+            Square::Blank,
+            Square::Tile(Char('T')),
+            Square::Tile(Char('O')),
+            Square::Tile(Char('U')),
+            Square::Tile(Char('C')),
+            Square::Tile(Char('A')),
+            Square::Tile(Char('N')),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            LetterBonus(2),
+            Square::Blank,
+            Square::Tile(Char('I')),
+            Square::Tile(Char('V')),
+            Square::Tile(Char('Y')),
+            Square::Blank,
+            Square::Blank,
+            Square::Tile(Char('W')),
+            Square::Blank,
+            Square::Blank,
+            Square::Tile(Char('M')),
+            Square::Tile(Char('U')),
+            Square::Tile(Char('D')),
+            Square::Blank,
+            LetterBonus(2),
+            Square::Blank,
+            Square::Blank,
+            WordBonus(2),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            LetterBonus(2),
+            Square::Tile(Char('N')),
+            LetterBonus(2),
+            Square::Tile(Char('T')),
+            Square::Tile(Char('I')),
+            Square::Tile(Char('N')),
+            Square::Tile(Char('E')),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            Square::Tile(Char('Q')),
+            Square::Tile(Char('U')),
+            Square::Tile(Char('I')),
+            Square::Tile(Char('X')),
+            Square::Tile(Char('O')),
+            Square::Tile(Char('T')),
+            Square::Tile(Char('E')),
+            Square::Blank,
+            LetterBonus(3),
+            Square::Blank,
+            Square::Blank,
+            Square::Tile(Char('W')),
+            Square::Tile(Char('A')),
+            Square::Tile(Char('G')),
+            Square::Tile(Char('A')),
+            Square::Tile(Char('I')),
+            Square::Blank,
+            LetterBonus(2),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            Square::Tile(Char('D')),
+            Square::Blank,
+            Square::Blank,
+            Square::Blank,
+            LetterBonus(2),
+            Square::Blank,
+            Square::Blank,
+            WordBonus(3),
+        ]);
+
+        // let words = board.words().collect::<Vec<_>>();
+
+        let turn = Turn {
+            tiles: vec![(179, Tile::Char('J')), (194, Char('O')), (224, Char('R'))],
+        };
+        let overlay = Overlay {
+            board: &board,
+            turn: &turn,
+        };
+
+        let score = overlay.score();
+
+        assert_eq!(
+            score,
+            TurnScore {
+                scores: vec![("JOGR".into(), 60)]
+            }
+        )
+
+        // for word in words {
+        //     assert_ne!(&word.string, "ONA");
+        // }
     }
 }
