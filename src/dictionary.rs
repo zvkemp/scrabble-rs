@@ -7,6 +7,8 @@ use tokio::{
 
 static WORDS: OnceCell<HashSet<String>> = OnceCell::const_new();
 
+static WORD_LIST_RAW: &str = include_str!("../words");
+
 pub async fn dictionary() -> &'static HashSet<String> {
     WORDS
         .get_or_init(|| async {
@@ -19,11 +21,9 @@ pub async fn dictionary() -> &'static HashSet<String> {
                     }
                 }
                 Err(_) => {
-                    let file = File::open("./words").await.unwrap();
-                    let reader = BufReader::new(file);
-                    let mut lines = reader.lines();
+                    let lines = WORD_LIST_RAW.lines();
 
-                    while let Ok(Some(line)) = lines.next_line().await {
+                    for line in lines {
                         set.insert(line.to_uppercase());
                     }
                 }
