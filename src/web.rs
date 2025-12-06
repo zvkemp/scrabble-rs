@@ -46,7 +46,7 @@ pub fn app(registry: RegistrySender, pool: PgPool) -> Router {
         .route("/login", post(create_login))
         .route("/simple/websocket", get(ws_handler))
         .route("/broker", get(broker_handler))
-        .route("/play/:game_id", get(show_game))
+        .route("/play/{game_id}", get(show_game))
         .route("/rand_game", get(rand_game))
         .route("/debug/registry", get(debug_registry))
         .layer(

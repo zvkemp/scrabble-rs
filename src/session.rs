@@ -5,7 +5,6 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use axum::async_trait;
 use axum::extract::{FromRequest, FromRequestParts};
 use axum::http::request::Parts;
 use axum::http::{Request, StatusCode, Uri};
@@ -113,7 +112,6 @@ fn secret_key_base() -> &'static [u8] {
     SECRET.as_bytes()
 }
 
-#[async_trait]
 impl<S> FromRequestParts<S> for Session
 where
     S: Send + Sync,
@@ -129,7 +127,6 @@ where
 
 pub(crate) struct CurrentUser(pub User);
 
-#[async_trait]
 impl<State> FromRequestParts<State> for CurrentUser
 where
     State: Send + Sync,
@@ -203,10 +200,10 @@ where
         }?;
 
         if this.session.has_changed() {
-            let cookie = Cookie::build(
+            let cookie = Cookie::build((
                 SESSION_COOKIE_NAME,
                 serde_json::to_string(&this.session.as_json()).unwrap(),
-            )
+            ))
             .max_age(Duration::from_secs(31536000).try_into().unwrap())
             .path("/")
             .finish();

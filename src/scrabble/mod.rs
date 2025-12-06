@@ -30,6 +30,7 @@ pub struct Game {
     turn_log: Vec<Turn>,
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct PlayerIndex(pub usize);
 
 pub mod persistence {
@@ -46,7 +47,7 @@ pub mod persistence {
 
     pub async fn fetch<'a, E>(name: &str, db: E) -> Result<Game, sqlx::Error>
     where
-        E: PgExecutor<'a>,
+        E: PgExecutor<'a> + Send + Sync,
     {
         let res = query!(r#"SELECT id, data from games where games.name = $1;"#, name)
             .fetch_one(db)
@@ -111,7 +112,7 @@ pub type Rack = Vec<Tile>;
 impl Game {
     pub async fn persist<'a, E>(&mut self, db: E) -> Result<i64, Error>
     where
-        E: PgExecutor<'a>,
+        E: PgExecutor<'a> + Send + Sync,
     {
         if self.pkid.is_none() {
             match self.create(db).await {
@@ -129,7 +130,7 @@ impl Game {
 
     async fn create<'a, E>(&mut self, db: E) -> Result<i64, Error>
     where
-        E: PgExecutor<'a>,
+        E: PgExecutor<'a> + Sync + Send,
     {
         let result = query!(
             "INSERT INTO games (name, data) VALUES ($1, $2) returning id;",
@@ -145,7 +146,7 @@ impl Game {
 
     async fn update<'a, E>(&self, db: E) -> Result<i64, Error>
     where
-        E: PgExecutor<'a>,
+        E: PgExecutor<'a> + Send + Sync,
     {
         warn!("Updating {:?}", self.pkid);
         let _result = query!(

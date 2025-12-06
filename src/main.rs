@@ -1,11 +1,13 @@
-use axum::{async_trait, http};
-use axum_channels::channel::{self, Channel, MessageContext, NewChannel, Presence};
+use axum::http;
+use axum_channels::channel::{self, Channel, ChannelFuture, MessageContext, NewChannel, Presence};
 use axum_channels::message::{Message, MessageKind};
 use axum_channels::registry::Registry;
 use axum_channels::types::{ChannelId, Token};
 use scrabble::{Game, Player, Turn, TurnScore};
 use serde_json::json;
 use sqlx::{postgres::PgPoolOptions, PgPool};
+use std::future::{ready, Future};
+use std::pin::Pin;
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
@@ -54,17 +56,17 @@ async fn main() {
         ));
     }
 
-    let (registry_sender, _registry_handle) = registry.start_clustered(peers).await;
+    let (registry_sender, _registry_handle) = registry.start_clustered(peers);
 
     let app = web::app(registry_sender, pool);
 
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
     let socket_addr = SocketAddr::new("0.0.0.0".parse().unwrap(), port.parse().unwrap());
+    let listener = tokio::net::TcpListener::bind(socket_addr).await.unwrap();
 
     println!("{:?}", socket_addr);
 
-    axum::Server::bind(&socket_addr)
-        .serve(app.into_make_service())
+    axum::serve(listener, app.into_make_service())
         .await
         .unwrap();
 }
@@ -140,11 +142,9 @@ impl GameChannel {
     }
 }
 
-// FIXME: need a nicer way to declare messages
-#[async_trait]
-impl Channel for GameChannel {
-    async fn handle_message(&mut self, context: &MessageContext) -> Option<Message> {
-        match &context.inner.kind {
+impl GameChannel {
+    async fn handle_message_inner(&mut self, context: &MessageContext) -> Option<Message> {
+        match context.inner.kind {
             MessageKind::Event => match context.inner.event.as_ref() {
                 "start" => {
                     let _ = self.game.as_mut().unwrap().start();
@@ -255,7 +255,7 @@ impl Channel for GameChannel {
         }
     }
 
-    async fn handle_out(&mut self, context: &MessageContext) -> Option<Message> {
+    fn handle_out_inner(&mut self, context: &MessageContext) -> Option<Message> {
         match &context.inner.kind {
             MessageKind::BroadcastIntercept => {
                 let index = self
@@ -281,26 +281,29 @@ impl Channel for GameChannel {
         }
     }
 
-    async fn handle_join(
+    async fn handle_join_inner(
         &mut self,
         context: &MessageContext,
     ) -> Result<Option<Message>, channel::Error> {
-        if self.game.is_none() {
-            let game = Game::fetch(context.channel_id().clone(), &self.pg_pool).await;
-            debug!("setting up game {:?}...", context.channel_id());
-            self.game = Some(game);
-        }
-
-        debug!("{:?}", context);
-        let token = context
+        let session_token = context
             .inner
             .payload
             .get("token")
             .and_then(|t| t.as_str())
-            .ok_or_else(|| channel::Error::Other("token not found".into()))
-            .map(|token| Session::read_token(token.to_string()))?;
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| channel::Error::Other("token not found".into()))?;
+        let token = context.token.clone();
+        let channel_id = context.channel_id().clone();
+        let session = Session::read_token(session_token)
+            .ok_or_else(|| channel::Error::Other("token was not valid".into()))?;
+        let intercept =
+            Some(context.build_broadcast_intercept("player-state".into(), Default::default()));
 
-        let session = token.ok_or_else(|| channel::Error::Other("token was not valid".into()))?;
+        if self.game.is_none() {
+            debug!("setting up game {:?}...", channel_id);
+            let game = Game::fetch(channel_id, &self.pg_pool).await;
+            self.game = Some(game);
+        }
 
         let user = User::find(session.user_id.unwrap(), &self.pg_pool)
             .await // damn it
@@ -311,7 +314,7 @@ impl Channel for GameChannel {
         match self.game.as_mut().unwrap().add_player(player.clone()) {
             Ok(player_index) => {
                 let _ = self.save_state().await;
-                let state = self.socket_state.entry(context.token).or_default();
+                let state = self.socket_state.entry(token).or_default();
 
                 state.insert(PlayerIndex(player_index));
                 state.insert(player);
@@ -322,14 +325,11 @@ impl Channel for GameChannel {
             }
         }
 
-        Ok(Some(context.build_broadcast_intercept(
-            "player-state".into(),
-            Default::default(),
-        )))
+        Ok(intercept)
     }
 
     // FIXME: MessageContext
-    async fn handle_presence(
+    fn handle_presence_inner(
         &mut self,
         channel_id: &ChannelId,
         presence: &Presence,
@@ -353,12 +353,52 @@ impl Channel for GameChannel {
         Ok(Some(message))
     }
 
-    async fn handle_leave(
+    fn handle_leave_inner(
         &mut self,
         context: &MessageContext,
     ) -> axum_channels::channel::Result<Option<Message>> {
         self.socket_state.remove(&context.token);
         Ok(None)
+    }
+}
+
+// FIXME: need a nicer way to declare messages
+impl Channel for GameChannel {
+    fn handle_message<'a>(
+        &'a mut self,
+        context: &'a MessageContext,
+    ) -> Pin<Box<dyn Future<Output = Option<Message>> + Send + 'a>> {
+        Box::pin(self.handle_message_inner(context))
+    }
+
+    fn handle_out<'a>(
+        &'a mut self,
+        context: &'a MessageContext,
+    ) -> ChannelFuture<'a, Option<Message>> {
+        let reply = self.handle_out_inner(context);
+        Box::pin(ready(reply))
+    }
+
+    fn handle_join<'a>(
+        &'a mut self,
+        context: &'a MessageContext,
+    ) -> Pin<Box<dyn Future<Output = channel::Result<Option<Message>>> + Send + 'a>> {
+        Box::pin(self.handle_join_inner(context))
+    }
+
+    fn handle_presence(
+        &mut self,
+        _channel_id: &axum_channels::types::ChannelId,
+        _presence: &Presence,
+    ) -> Pin<Box<dyn Future<Output = channel::Result<Option<Message>>> + Send>> {
+        Box::pin(ready(self.handle_presence_inner(_channel_id, _presence)))
+    }
+
+    fn handle_leave(
+        &mut self,
+        _context: &MessageContext,
+    ) -> Pin<Box<dyn Future<Output = channel::Result<Option<Message>>> + Send>> {
+        Box::pin(ready(self.handle_leave_inner(_context)))
     }
 }
 

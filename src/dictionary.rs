@@ -33,7 +33,7 @@ pub async fn dictionary() -> &'static HashSet<String> {
         .await
 }
 
-pub async fn illegal_words<'a>(words: Vec<String>) -> Vec<String> {
+pub async fn illegal_words(words: Vec<String>) -> Vec<String> {
     let dict = dictionary().await;
 
     words
