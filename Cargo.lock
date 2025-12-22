@@ -1983,6 +1983,7 @@ dependencies = [
  "cookie",
  "dotenv",
  "hmac",
+ "itertools",
  "lazy_static",
  "parking_lot",
  "pin-project",

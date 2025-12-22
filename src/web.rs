@@ -20,8 +20,8 @@ use tower_cookies::{CookieManagerLayer, Cookies};
 use tracing::debug;
 
 use crate::session::{self, CurrentUser, SessionManager, SessionManagerLayer};
-use crate::users;
 use crate::users::User;
+use crate::{dictionary, users};
 
 #[derive(Deserialize, Debug)]
 struct Registration {
@@ -192,11 +192,13 @@ async fn broker_handler(
 async fn show_game(Path(game_id): Path<String>, CurrentUser(user): CurrentUser) -> Html<String> {
     let session = session::Session::from(&user);
     let token = session.token();
+    let two_letter_words = dictionary::two_letter_words().await;
 
     let template = GameTemplate {
         game_id: game_id.as_str(),
         token: token.as_str(),
         player: user.username.as_str(),
+        two_letter_words: two_letter_words.as_str(),
     };
 
     Html(template.render().unwrap())
@@ -208,6 +210,7 @@ struct GameTemplate<'a> {
     game_id: &'a str,
     token: &'a str,
     player: &'a str,
+    two_letter_words: &'a str,
 }
 
 #[derive(Template)]

@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use std::collections::HashSet;
 use tokio::{
     fs::File,
@@ -40,4 +41,22 @@ pub async fn illegal_words(words: Vec<String>) -> Vec<String> {
         .into_iter()
         .filter(|word| !dict.contains(&*word))
         .collect()
+}
+
+// formatted for display
+pub(crate) async fn two_letter_words() -> String {
+    let dict = dictionary().await;
+    let mut res = dict
+        .iter()
+        .filter(|word| word.len() == 2)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    res.sort();
+    let mut chunks = res.into_iter().chunk_by(|a| a.chars().next().unwrap());
+    chunks
+        .into_iter()
+        .map(|(_, mut vals)| vals.join(" "))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
