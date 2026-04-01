@@ -132,3 +132,72 @@ header nav a {
     margin: 2rem 1rem;
   }
 }
+
+@media (prefers-color-scheme: dark) {
+  body {
+    color: #e0e0e0;
+  }
+
+  a {
+    color: #5a9fd4;
+  }
+  a:focus, a:hover {
+    color: #8ab8e0;
+  }
+
+  code {
+    background: #2a2a2a;
+    color: #e0e0e0;
+  }
+
+  pre {
+    background: #2a2a2a;
+    border-left-color: #5a9fd4;
+  }
+
+  hr {
+    border-top-color: #333;
+  }
+
+  td, th {
+    border-bottom-color: #333;
+  }
+
+  input[type='email'], input[type='number'], input[type='password'],
+  input[type='search'], input[type='tel'], input[type='text'],
+  input[type='url'], textarea, select {
+    border-color: #555;
+    color: #e0e0e0;
+  }
+  input[type='email']:focus, input[type='number']:focus, input[type='password']:focus,
+  input[type='search']:focus, input[type='tel']:focus, input[type='text']:focus,
+  input[type='url']:focus, textarea:focus, select:focus {
+    border-color: #5a9fd4;
+  }
+
+  .alert-info {
+    color: #7ec8e3;
+    background-color: #1a2a33;
+    border-color: #2a4a55;
+  }
+  .alert-warning {
+    color: #d4b56a;
+    background-color: #2a2510;
+    border-color: #4a3f1a;
+  }
+  .alert-danger {
+    color: #e07070;
+    background-color: #2a1515;
+    border-color: #4a2525;
+  }
+
+  header {
+    background: #222;
+    border-bottom-color: #333;
+  }
+
+  .phx-hero {
+    background: #2a2a2a;
+    border-bottom-color: #333;
+  }
+}

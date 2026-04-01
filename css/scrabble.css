@@ -326,3 +326,131 @@ span.your-turn {
 .broadcast-button {
   background-color: green;
 }
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background-color: #1a1a1a;
+    color: #e0e0e0;
+  }
+
+  #board-container {
+    border-color: #4a3030;
+  }
+
+  #board-container.current {
+    border-color: #2d8a2d;
+  }
+
+  .board-square {
+    background-color: #2a2520;
+  }
+
+  .board-square.bonus {
+    color: #e0e0e0;
+  }
+
+  .board-square.quad_word {
+    background-color: #b35900;
+  }
+
+  .board-square.triple_word {
+    background-color: #993333;
+  }
+
+  .board-square.double_word {
+    background-color: #804060;
+    color: #cc8899;
+  }
+
+  .board-square.quad_letter {
+    color: #a0e0e0;
+    background-color: #1a5555;
+  }
+
+  .board-square.triple_letter {
+    background-color: #2a6090;
+  }
+
+  .board-square.double_letter {
+    background-color: #1a3a4a;
+    color: #70b0c0;
+  }
+
+  .board-square.tile, .rack-square.tile {
+    background-color: #a08050;
+    color: #1a1a1a;
+  }
+
+  .rack-square.tile.empty {
+    border-color: #555;
+    background-color: #2a2a2a;
+  }
+
+  .board-square.tile-proposed {
+    background-color: #2d8a2d;
+    color: #e0e0e0;
+  }
+
+  .board-square.tile-blank {
+    color: #cc6666;
+  }
+
+  .board-square.last-turn {
+    background-color: #8a6a20;
+  }
+
+  .rack-square.tile.used {
+    background-color: #2a2a2a;
+    border-color: #666;
+  }
+
+  .rack-square, .board-square {
+    border-color: #333;
+  }
+
+  th.current-player {
+    color: #3dcc3d;
+  }
+
+  th.offline {
+    color: #777;
+  }
+
+  th.offline::after {
+    color: #ccc;
+    background-color: #444;
+  }
+
+  #swap-button, #pass-button {
+    background-color: #993333;
+  }
+
+  tr.game-over {
+    background-color: #333;
+  }
+
+  tr.your-turn {
+    background-color: #1a3a1a;
+  }
+
+  span.your-turn {
+    background-color: #2d8a2d;
+  }
+
+  .board-square::after {
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .rack-square::after {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .score-bingo {
+    background-color: #1a5555;
+    border-color: #555;
+  }
+
+  .flash-container .alert {
+    color: #e0e0e0;
+  }
+}
