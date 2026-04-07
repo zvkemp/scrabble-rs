@@ -358,8 +358,8 @@ span.your-turn {
   }
 
   .board-square.double_word {
-    background-color: #804060;
-    color: #cc8899;
+    background-color: #7a5a1a;
+    color: #e8c878;
   }
 
   .board-square.quad_letter {
@@ -368,17 +368,17 @@ span.your-turn {
   }
 
   .board-square.triple_letter {
-    background-color: #2a6090;
+    background-color: #224d74;
   }
 
   .board-square.double_letter {
-    background-color: #1a3a4a;
-    color: #70b0c0;
+    background-color: #3a82a0;
+    color: #d0f0ff;
   }
 
   .board-square.tile, .rack-square.tile {
-    background-color: #a08050;
-    color: #1a1a1a;
+    background-color: #58262d;
+    color: #f0f4ff;
   }
 
   .rack-square.tile.empty {
@@ -396,7 +396,7 @@ span.your-turn {
   }
 
   .board-square.last-turn {
-    background-color: #8a6a20;
+    background-color: #a85565;
   }
 
   .rack-square.tile.used {
