@@ -36,7 +36,7 @@ pub struct PlayerIndex(pub usize);
 pub mod persistence {
     use super::Game;
     use sqlx::types::Json;
-    use sqlx::{query, FromRow, PgExecutor};
+    use sqlx::{query, PgExecutor};
 
     #[derive(Debug)]
     pub struct SavedGame {
@@ -188,6 +188,7 @@ impl Game {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn is_over(&self) -> bool {
         matches!(self.state, State::Over)
     }

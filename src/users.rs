@@ -116,11 +116,11 @@ mod tests {
 
         let mut tx = pool.begin().await.unwrap();
 
-        User::create("test_user_3", "password", &mut tx)
+        User::create("test_user_3", "password", tx.as_mut())
             .await
             .unwrap();
 
-        let user = User::find_by_username("test_user_3", &mut tx)
+        let user = User::find_by_username("test_user_3", tx.as_mut())
             .await
             .unwrap();
 
@@ -137,15 +137,15 @@ mod tests {
 
         let mut tx = pool.begin().await.unwrap();
 
-        User::create("test_user_4", "password", &mut tx)
+        User::create("test_user_4", "password", tx.as_mut())
             .await
             .unwrap();
 
-        let user = User::find_by_username_and_password("test_user_4", "wrong", &mut tx).await;
+        let user = User::find_by_username_and_password("test_user_4", "wrong", tx.as_mut()).await;
 
         assert!(user.is_err());
 
-        let _user = User::find_by_username_and_password("test_user_4", "password", &mut tx)
+        let _user = User::find_by_username_and_password("test_user_4", "password", tx.as_mut())
             .await
             .unwrap();
 

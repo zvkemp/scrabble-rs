@@ -76,7 +76,7 @@ struct GameChannel {
     pub(crate) game: Option<Game>,
     pub(crate) socket_state: HashMap<Token, http::Extensions>,
     pub(crate) pg_pool: PgPool,
-    pub(crate) channel_id: ChannelId,
+    pub(crate) _channel_id: ChannelId,
 }
 
 impl GameChannel {
@@ -85,7 +85,7 @@ impl GameChannel {
             game: None,
             socket_state: HashMap::new(),
             pg_pool,
-            channel_id,
+            _channel_id: channel_id,
         }
     }
 
@@ -183,7 +183,8 @@ impl GameChannel {
                         .await
                     {
                         Ok(msg) => {
-                            context.broadcast_intercept("player-state".into(), Default::default());
+                            let _ = context
+                                .broadcast_intercept("player-state".into(), Default::default());
 
                             msg.map(|message| {
                                 context
@@ -292,7 +293,7 @@ impl GameChannel {
             .and_then(|t| t.as_str())
             .map(ToOwned::to_owned)
             .ok_or_else(|| channel::Error::Other("token not found".into()))?;
-        let token = context.token.clone();
+        let token = context.token;
         let channel_id = context.channel_id().clone();
         let session = Session::read_token(session_token)
             .ok_or_else(|| channel::Error::Other("token was not valid".into()))?;

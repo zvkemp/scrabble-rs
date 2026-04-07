@@ -1,10 +1,6 @@
 use itertools::Itertools;
 use std::collections::HashSet;
-use tokio::{
-    fs::File,
-    io::{AsyncBufReadExt, BufReader},
-    sync::OnceCell,
-};
+use tokio::sync::OnceCell;
 
 static WORDS: OnceCell<HashSet<String>> = OnceCell::const_new();
 
@@ -39,7 +35,7 @@ pub async fn illegal_words(words: Vec<String>) -> Vec<String> {
 
     words
         .into_iter()
-        .filter(|word| !dict.contains(&*word))
+        .filter(|word| !dict.contains(word))
         .collect()
 }
 
@@ -53,7 +49,7 @@ pub(crate) async fn two_letter_words() -> String {
         .collect::<Vec<_>>();
 
     res.sort();
-    let mut chunks = res.into_iter().chunk_by(|a| a.chars().next().unwrap());
+    let chunks = res.into_iter().chunk_by(|a| a.chars().next().unwrap());
     chunks
         .into_iter()
         .map(|(_, mut vals)| vals.join(" "))

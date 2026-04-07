@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use askama::Template;
 use axum::extract::{ws::WebSocketUpgrade, Form, Path};
 use axum::http::StatusCode;
@@ -9,14 +7,13 @@ use axum::Json;
 use axum::{Extension, Router};
 use axum_channels::registry::{RegistryMessage, RegistrySender};
 use axum_channels::ConnFormat;
-use cookie::{Cookie, Key};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::PgPool;
 use tokio::sync::oneshot;
-use tower_cookies::{CookieManagerLayer, Cookies};
+use tower_cookies::CookieManagerLayer;
 use tracing::debug;
 
 use crate::session::{self, CurrentUser, SessionManager, SessionManagerLayer};
