@@ -12,6 +12,7 @@ RUN rm -rf src/main.rs target/release/deps/scrabble-*
 COPY . .
 
 ENV PATH="$PATH:/root/.volta/bin"
+ENV SQLX_OFFLINE=true
 RUN echo $PATH
 RUN ls -al /root/.volta/bin/
 RUN yarn install
